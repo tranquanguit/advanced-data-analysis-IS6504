@@ -55,7 +55,14 @@ def ensure_dirs(cfg):
 
 def build_feature_cols(df: pd.DataFrame, target: str, horizons: list[int]) -> list[str]:
     exclude = {"year", "month", "date", "province", target} | {f"{target}_t+{h}" for h in horizons}
-    return [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
+    # Avoid leakage/double-counting when target is a rate derived from cases
+    return [
+        c
+        for c in df.columns
+        if c not in exclude
+        and pd.api.types.is_numeric_dtype(df[c])
+        and not c.endswith("_cases")
+    ]
 
 
 def run_pipeline(config_path: str):
@@ -176,38 +183,51 @@ def run_pipeline(config_path: str):
     model_preds["HistGB"] = np.column_stack(preds_hgb)
 
     lstm_cfg = model_cfg.get("lstm", {})
-    x_train_t = torch.tensor(x_train, dtype=torch.float32).unsqueeze(1)
-    y_train_t = torch.tensor(y_train, dtype=torch.float32)
-    x_val_t = torch.tensor(x_val, dtype=torch.float32).unsqueeze(1)
-    y_val_t = torch.tensor(y_val, dtype=torch.float32)
-    x_test_t = torch.tensor(x_test, dtype=torch.float32).unsqueeze(1)
+    # build sequences for LSTM (seq_len configurable; default 24 months)
+    seq_len = lstm_cfg.get("seq_len", 24)
+
+    def build_sequences(x_arr, y_arr):
+        Xs, Ys = [], []
+        for i in range(len(x_arr) - seq_len + 1):
+            Xs.append(x_arr[i : i + seq_len])
+            Ys.append(y_arr[i + seq_len - 1])
+        return torch.tensor(np.stack(Xs), dtype=torch.float32), torch.tensor(np.stack(Ys), dtype=torch.float32)
+
+    x_train_t, y_train_t = build_sequences(x_train, y_train)
+    x_val_t, y_val_t = build_sequences(x_val, y_val)
+    x_test_t, y_test_t_lstm = build_sequences(x_test, y_test)
 
     lstm = LSTMModel(
         input_size=x_train.shape[1],
-        hidden_size=lstm_cfg.get("hidden_size", 64),
+        hidden_size=lstm_cfg.get("hidden_size", 128),
         num_layers=lstm_cfg.get("num_layers", 2),
         out_dim=len(horizons),
+        dropout=lstm_cfg.get("dropout", 0.2),
     )
     lstm = train_lstm(
         lstm,
         x_train_t,
         y_train_t,
         val_data=(x_val_t, y_val_t),
-        epochs=lstm_cfg.get("epochs", 30),
+        epochs=lstm_cfg.get("epochs", 60),
         lr=lstm_cfg.get("lr", 1e-3),
+        batch_size=lstm_cfg.get("batch_size", 64),
     )
     lstm.eval()
     with torch.no_grad():
         model_preds["LSTM"] = lstm(x_test_t).cpu().numpy()
 
+    y_true_map = {"LSTM": y_test[seq_len - 1 :]}  # align with sequence reduction
+
     for model_name, pred in model_preds.items():
-        scores = evaluate_horizons(y_test, pred, horizons)
-        outbreak = outbreak_metrics(y_test[:, 0], pred[:, 0], percentile=95)
+        y_true_use = y_true_map.get(model_name, y_test)
+        scores = evaluate_horizons(y_true_use, pred, horizons)
+        outbreak = outbreak_metrics(y_true_use[:, 0], pred[:, 0], percentile=95)
         results.append({"model": model_name, **scores, **outbreak})
 
-        pred_df = test[["province", "date"]].copy()
+        pred_df = test[["province", "date"]].iloc[-len(pred) :].copy()
         for i, h in enumerate(horizons):
-            pred_df[f"actual_t+{h}"] = y_test[:, i]
+            pred_df[f"actual_t+{h}"] = y_true_use[:, i]
             pred_df[f"pred_t+{h}"] = pred[:, i]
         pred_df.to_csv(dirs["predictions"] / f"pred_{model_name}.csv", index=False)
 
@@ -220,12 +240,15 @@ def run_pipeline(config_path: str):
     province_df["pred"] = model_preds[best_model][:, 0]
     per_province_mae(province_df, "actual", "pred").to_csv(dirs["metrics"] / "province_metrics.csv", index=False)
 
-    base_err = np.abs(y_test[:, 0] - seasonal_preds[:, 0])
+    base_err_full = np.abs(y_test[:, 0] - seasonal_preds[:, 0])
     stats_rows = []
     for name, pred in model_preds.items():
         if name == "SeasonalNaive":
             continue
-        stats_rows.append({"model": name, **significance_test(base_err, np.abs(y_test[:, 0] - pred[:, 0]))})
+        true_arr = y_true_map.get(name, y_test)
+        ref_err = base_err_full[-len(pred) :]
+        model_err = np.abs(true_arr[:, 0] - pred[:, 0])
+        stats_rows.append({"model": name, **significance_test(ref_err, model_err)})
     pd.DataFrame(stats_rows).to_csv(dirs["metrics"] / "significance_vs_seasonal.csv", index=False)
 
     top2 = res_df.head(2)["model"].tolist()

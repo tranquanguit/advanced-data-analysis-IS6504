@@ -8,24 +8,33 @@ def train_lstm(
     x_train,
     y_train,
     val_data=None,
-    epochs: int = 30,
+    epochs: int = 60,
     lr: float = 1e-3,
-    patience: int = 5,
+    patience: int = 8,
+    batch_size: int = 64,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     loss_fn = torch.nn.MSELoss()
     best_val = float("inf")
     wait = 0
 
+    n = x_train.size(0)
+    indices = torch.arange(n)
+
     for _ in range(epochs):
         model.train()
-        pred = model(x_train)
-        loss = loss_fn(pred, y_train)
+        perm = torch.randperm(n)
+        for start in range(0, n, batch_size):
+            idx = perm[start : start + batch_size]
+            xb = x_train[idx]
+            yb = y_train[idx]
+            pred = model(xb)
+            loss = loss_fn(pred, yb)
 
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
 
         if val_data is None:
             continue
