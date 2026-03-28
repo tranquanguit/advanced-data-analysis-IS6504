@@ -9,14 +9,18 @@ from src.config import PROVINCE_COL
 def create_features(
     df: pd.DataFrame,
     target: str,
+    diseases: list[str],
     weather_vars: list[str],
     social_vars: list[str],
     lags: list[int],
     rolling_windows: list[int],
+    include_other_diseases: bool = False,
 ) -> pd.DataFrame:
     out = df.copy()
 
-    for col in [target] + weather_vars + social_vars:
+    # build base list of columns to lag
+    extra_disease_cols = [d for d in diseases if d != target] if include_other_diseases else []
+    for col in [target, *extra_disease_cols, *weather_vars, *social_vars]:
         if col not in out.columns:
             continue
         for lag in lags:

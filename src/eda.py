@@ -7,7 +7,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-def run_eda(df: pd.DataFrame, target: str, climate_cols: list[str], out_dir: Path) -> None:
+def run_eda(
+    df: pd.DataFrame,
+    target: str,
+    climate_cols: list[str],
+    disease_cols: list[str] | None,
+    out_dir: Path,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     month_profile = df.groupby("month")[target].mean()
@@ -47,3 +53,37 @@ def run_eda(df: pd.DataFrame, target: str, climate_cols: list[str], out_dir: Pat
         plt.tight_layout()
         plt.savefig(out_dir / "lag_correlation_heatmap.png")
         plt.close()
+
+    # Cross-disease correlation (optional)
+    if disease_cols:
+        disease_cols = [c for c in disease_cols if c in df.columns]
+        if len(disease_cols) >= 2:
+            corr_mat = df[disease_cols].corr()
+            corr_mat.to_csv(out_dir / "disease_corr_matrix.csv")
+            plt.figure(figsize=(4, 3))
+            sns.heatmap(corr_mat, annot=True, fmt=".2f", cmap="coolwarm", center=0)
+            plt.title("Disease correlation (same month)")
+            plt.tight_layout()
+            plt.savefig(out_dir / "disease_corr_heatmap.png")
+            plt.close()
+
+            # Cross-correlation with lags 0-6 months
+            xcorr_rows = []
+            for d1 in disease_cols:
+                for d2 in disease_cols:
+                    if d1 == d2:
+                        continue
+                    for lag in [0, 1, 2, 3, 4, 5, 6]:
+                        shifted = df.groupby("province")[d2].shift(lag)
+                        corr = df[d1].corr(shifted)
+                        xcorr_rows.append({"d1": d1, "d2": d2, "lag": lag, "corr": corr})
+            xcorr_df = pd.DataFrame(xcorr_rows)
+            xcorr_df.to_csv(out_dir / "disease_crosscorr.csv", index=False)
+            if not xcorr_df.empty:
+                pivot = xcorr_df.pivot_table(index=["d1", "d2"], columns="lag", values="corr")
+                plt.figure(figsize=(8, 4))
+                sns.heatmap(pivot, annot=True, fmt=".2f", cmap="coolwarm", center=0)
+                plt.title("Disease cross-correlation by lag")
+                plt.tight_layout()
+                plt.savefig(out_dir / "disease_crosscorr_heatmap.png")
+                plt.close()
