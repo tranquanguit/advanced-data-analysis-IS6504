@@ -18,7 +18,8 @@ def evaluate_horizons(y_true: np.ndarray, y_pred: np.ndarray, horizons: list[int
         yt = y_true[:, i]
         yp = y_pred[:, i]
         out[f"MAE@{h}"] = mean_absolute_error(yt, yp)
-        out[f"RMSE@{h}"] = mean_squared_error(yt, yp, squared=False)
+        # Older sklearn in the environment does not support squared=False, so compute RMSE manually
+        out[f"RMSE@{h}"] = mean_squared_error(yt, yp) ** 0.5
         out[f"SMAPE@{h}"] = smape(yt, yp)
     return out
 
@@ -36,7 +37,12 @@ def outbreak_metrics(y_true: np.ndarray, y_pred: np.ndarray, percentile: float =
 
 
 def significance_test(errors_a: np.ndarray, errors_b: np.ndarray) -> dict:
-    stat, p = wilcoxon(errors_a, errors_b, zero_method="wilcox", correction=False)
+    errors_a = np.asarray(errors_a, dtype=float)
+    errors_b = np.asarray(errors_b, dtype=float)
+    mask = ~np.isnan(errors_a) & ~np.isnan(errors_b)
+    if mask.sum() == 0:
+        return {"wilcoxon_stat": float("nan"), "p_value": float("nan")}
+    stat, p = wilcoxon(errors_a[mask], errors_b[mask], zero_method="wilcox", correction=False)
     return {"wilcoxon_stat": float(stat), "p_value": float(p)}
 
 
