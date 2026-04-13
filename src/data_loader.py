@@ -52,7 +52,11 @@ def load_all_provinces(
 
     out = pd.concat(frames, axis=0, ignore_index=True)
     out = out.sort_values([PROVINCE_COL, "date"]).reset_index(drop=True)
-    # groupby.apply drops the grouping column if group_keys=False; keep the province column by
-    # resetting the multi-index after forward/backward filling within each province.
-    out = out.groupby(PROVINCE_COL).apply(lambda g: g.ffill().bfill()).reset_index(level=0).reset_index(drop=True)
+
+    # Fill missing values within each province only to avoid cross-province leakage
+    # and avoid pandas reset_index collisions on the grouping column.
+    filled_frames: list[pd.DataFrame] = []
+    for _, g in out.groupby(PROVINCE_COL, sort=False):
+        filled_frames.append(g.ffill().bfill())
+    out = pd.concat(filled_frames, axis=0, ignore_index=True)
     return out

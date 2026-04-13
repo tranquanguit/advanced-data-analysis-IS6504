@@ -77,9 +77,10 @@ def run_pipeline(config_path: str):
     diseases = exp.get("diseases", [])
     weather_vars = exp.get("weather_vars", [])
     social_vars = exp.get("social_vars", [])
-    lags = exp.get("lags", [1, 2, 3])
-    rolling_windows = exp.get("rolling_windows", [3])
-    horizons = exp.get("horizons", [1, 2, 3])
+    lags = exp.get("lags", [1, 2, 3]) # keep for backward compatibility or replace
+    input_sequence_length = exp.get("input_sequence_length", 12)
+    predict_horizon = exp.get("predict_horizon", 3)
+    horizons = list(range(1, predict_horizon + 1))
     train_end = exp.get("train_end", "2014-12-31")
     val_end = exp.get("val_end", "2015-12-31")
     test_start = exp.get("test_start", "2016-01-01")
@@ -99,8 +100,7 @@ def run_pipeline(config_path: str):
         diseases,
         weather_vars,
         social_vars,
-        lags,
-        rolling_windows,
+        input_sequence_length,
         include_other_diseases=exp.get("include_other_diseases_as_features", False),
     )
     df_all = create_multi_horizon_targets(df_feat, target, horizons)
@@ -151,11 +151,8 @@ def run_pipeline(config_path: str):
     def eval_grid(grid, trainer_fn, name):
         best = None
         for params in grid:
-            preds_val = []
-            for i, _ in enumerate(horizons):
-                m = trainer_fn(x_train, y_train[:, i], params=params)
-                preds_val.append(m.predict(x_val))
-            preds_val = np.column_stack(preds_val)
+            m = trainer_fn(x_train, y_train, params=params)
+            preds_val = m.predict(x_val)
             scores = evaluate_horizons(y_val, preds_val, horizons)
             score_key = "MAE@1"
             score = scores.get(score_key, list(scores.values())[0])
@@ -170,17 +167,11 @@ def run_pipeline(config_path: str):
     x_trainval = np.vstack([x_train, x_val])
     y_trainval = np.vstack([y_train, y_val])
 
-    preds_xgb = []
-    preds_hgb = []
-    xgb_models = []
-    for i, _ in enumerate(horizons):
-        mx = train_xgb(x_trainval, y_trainval[:, i], params=best_xgb_params or model_cfg.get("xgb", {}))
-        mh = train_hgb(x_trainval, y_trainval[:, i], params=best_hgb_params or model_cfg.get("hgb", {}))
-        preds_xgb.append(mx.predict(x_test))
-        preds_hgb.append(mh.predict(x_test))
-        xgb_models.append(mx)
-    model_preds["XGBoost"] = np.column_stack(preds_xgb)
-    model_preds["HistGB"] = np.column_stack(preds_hgb)
+    mx = train_xgb(x_trainval, y_trainval, params=best_xgb_params or model_cfg.get("xgb", {}))
+    mh = train_hgb(x_trainval, y_trainval, params=best_hgb_params or model_cfg.get("hgb", {}))
+    model_preds["XGBoost"] = mx.predict(x_test)
+    model_preds["HistGB"] = mh.predict(x_test)
+    xgb_models = [mx.estimators_[0]] if hasattr(mx, 'estimators_') else [mx] # For SHAP
 
     lstm_cfg = model_cfg.get("lstm", {})
     # build sequences for LSTM (seq_len configurable; default 24 months)
@@ -255,22 +246,130 @@ def run_pipeline(config_path: str):
     for name in top2:
         plot_prediction(y_test, model_preds[name], dirs["plots"] / f"prediction_{name}.png", horizon_idx=0)
 
+    # if run_cfg.get("enable_shap", True):
+    #     try:
+    #         run_shap_analysis(xgb_models[0], x_train_df[feature_cols], x_test_df[feature_cols], feature_cols, dirs["shap"])
+    #         shap_by_province(
+    #             xgb_models[0],
+    #             pd.concat([test[["province"]], x_test_df[feature_cols]], axis=1),
+    #             feature_cols,
+    #             dirs["shap"],
+    #         )
+    #         generate_insights(
+    #             dirs["shap"] / "top_features.csv",
+    #             dirs["shap"] / "shap_by_province.csv",
+    #             dirs["shap"] / "insights.txt",
+    #         )
+    #     except Exception as exc:
+    #         warnings.warn(f"SHAP step skipped due to: {exc}")
+    
+    def _robust_clean_numeric(df: pd.DataFrame, cols):
+        """Convert ALL values to float, handle '[...]', strings, edge cases."""
+        df = df.copy()
+
+        def _fix(x):
+            if pd.isna(x):
+                return None
+            if isinstance(x, (int, float)):
+                return x
+
+            x = str(x).strip()
+
+            # remove brackets
+            x = re.sub(r"[\[\]]", "", x)
+
+            # normalize null-like
+            if x.lower() in {"nan", "none", ""}:
+                return None
+
+            try:
+                return float(x)
+            except:
+                return None
+
+        for col in cols:
+            df[col] = df[col].apply(_fix)
+
+        return df
+
+
+    def _detect_non_numeric(df: pd.DataFrame, cols, name="df"):
+        """Find exact bad values instead of guessing."""
+        bad = {}
+
+        for col in cols:
+            mask = ~pd.to_numeric(df[col], errors="coerce").notna()
+            if mask.any():
+                bad[col] = df.loc[mask, col].head(5).tolist()
+
+        if bad:
+            print(f"\n[CRITICAL] Non-numeric detected in {name}:")
+            for k, v in bad.items():
+                print(f"  {k}: {v}")
+            raise ValueError(f"{name} still contains non-numeric values")
+
+
+    def _validate_no_nan(df: pd.DataFrame, cols, name="df"):
+        nan_cols = df[cols].columns[df[cols].isna().any()].tolist()
+        if nan_cols:
+            raise ValueError(f"{name} contains NaN after cleaning in columns: {nan_cols}")
+
+
+    # ================= MAIN =================
     if run_cfg.get("enable_shap", True):
         try:
-            run_shap_analysis(xgb_models[0], x_train_df[feature_cols], x_test_df[feature_cols], feature_cols, dirs["shap"])
-            shap_by_province(
+            # 1. Reset index
+            x_train = x_train_df[feature_cols].reset_index(drop=True)
+            x_test = x_test_df[feature_cols].reset_index(drop=True)
+            test_meta = test[["province"]].reset_index(drop=True)
+
+            # 2. Clean (robust version)
+            x_train = _robust_clean_numeric(x_train, feature_cols)
+            x_test = _robust_clean_numeric(x_test, feature_cols)
+
+            # 3. Detect lỗi thật sự (QUAN TRỌNG)
+            _detect_non_numeric(x_train, feature_cols, "x_train")
+            _detect_non_numeric(x_test, feature_cols, "x_test")
+
+            # 4. Validate NaN
+            _validate_no_nan(x_train, feature_cols, "x_train")
+            _validate_no_nan(x_test, feature_cols, "x_test")
+
+            # 5. Run SHAP
+            run_shap_analysis(
                 xgb_models[0],
-                pd.concat([test[["province"]], x_test_df[feature_cols]], axis=1),
+                x_train,
+                x_test,
                 feature_cols,
                 dirs["shap"],
             )
+
+            # 6. SHAP by province
+            shap_input = pd.concat([test_meta, x_test], axis=1)
+
+            shap_by_province(
+                xgb_models[0],
+                shap_input,
+                feature_cols,
+                dirs["shap"],
+            )
+
+            # 7. Insights
             generate_insights(
                 dirs["shap"] / "top_features.csv",
                 dirs["shap"] / "shap_by_province.csv",
                 dirs["shap"] / "insights.txt",
             )
+
         except Exception as exc:
-            warnings.warn(f"SHAP step skipped due to: {exc}")
+            warnings.warn(f"[SHAP ERROR] {type(exc).__name__}: {exc}")
+
+            print("\n[DEBUG] Deep scan for bad values...")
+            try:
+                _detect_non_numeric(x_train_df[feature_cols], feature_cols, "RAW x_train_df")
+                _detect_non_numeric(x_test_df[feature_cols], feature_cols, "RAW x_test_df")
+            except Exception as inner_exc:
+                print(f"[ROOT CAUSE FOUND] {inner_exc}")    
 
     print(f"Done. Results at {dirs['metrics'] / 'model_comparison.csv'}")
 

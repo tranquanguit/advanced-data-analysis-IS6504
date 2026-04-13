@@ -1,0 +1,22 @@
+
+=== Hybrid run started at 2026-04-11T17:18:59.941787 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+
+=== Hybrid run started at 2026-04-11T17:20:18.818832 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+Completed at 2026-04-11T17:22:19.505471
+ERROR: Forecasting step failed: Command '['C:\\Users\\TRAN VAN QUANG\\AppData\\Local\\Programs\\Python\\Python311\\python.exe', 'run_all.py', '--config', 'Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\configs\\default.yaml']' returned non-zero exit status 1.
+
+=== Hybrid run started at 2026-04-12T07:12:43.733411 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+Completed at 2026-04-12T07:16:59.037044
+ERROR: Forecasting step failed: Command '['C:\\Users\\TRAN VAN QUANG\\AppData\\Local\\Programs\\Python\\Python311\\python.exe', 'run_all.py', '--config', 'Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\configs\\default.yaml']' returned non-zero exit status 1.
+
+=== Hybrid run started at 2026-04-12T07:17:32.562296 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+Completed at 2026-04-12T07:20:49.519383
+ERROR: Forecasting step failed: Command '['C:\\Users\\TRAN VAN QUANG\\AppData\\Local\\Programs\\Python\\Python311\\python.exe', 'run_all.py', '--config', 'Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\configs\\default.yaml']' returned non-zero exit status 1.
+
+=== Hybrid run started at 2026-04-12T07:26:59.841886 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+Completed at 2026-04-12T07:36:03.558384
