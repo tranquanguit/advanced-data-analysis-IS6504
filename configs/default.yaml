@@ -1,55 +1,54 @@
-# Runtime configuration for dengue forecasting pipeline
-paths:
-  data_folder: data/raw
-  processed_folder: data/processed
-  output_dir: outputs
-
 experiment:
-  target: Dengue_fever_rates
-  cases_col: Dengue_fever_cases
+  cases_col: Diarrhoea_cases
   compute_rate_per100k: false
   diseases:
-    - Influenza_rates
-    - Dengue_fever_rates
-    - Diarrhoea_rates
+  - Influenza_rates
+  - Dengue_fever_rates
+  - Diarrhoea_rates
   include_other_diseases_as_features: false
-  weather_vars:
-    - Total_Evaporation
-    - Total_Rainfall
-    - Max_Daily_Rainfall
-    - n_raining_days
-    - Average_temperature
-    - Average_Humidity
-    - n_hours_sunshine
+  input_sequence_length: 12
+  predict_horizon: 6
   social_vars:
-    - poverty_rate
-    - clean_water_rate_all
-    - urban_water_usage_rate
-    - toilet_rate
-    - population_density
-  lags: [1, 2, 3]
-  rolling_windows: [3]
-  horizons: [1, 2, 3]
-  train_end: "2014-12-31"
-  val_end: "2015-12-31"
-  test_start: "2016-01-01"
-  test_end: "2017-12-31"
-
+  - population_male
+  - population_female
+  - population_urban
+  - population_countryside
+  target: Diarrhoea_rates
+  test_end: '2017-12-31'
+  test_start: '2016-01-01'
+  train_end: '2014-12-31'
+  val_end: '2015-12-31'
+  weather_vars:
+  - Total_Evaporation
+  - Total_Rainfall
+  - Max_Daily_Rainfall
+  - n_raining_days
+  - Average_temperature
+  - Max_Average_Temperature
+  - Min_Average_Temperature
+  - Max_Absolute_Temperature
+  - Min_Absolute_Temperature
+  - Average_Humidity
+  - Min_Humidity
+  - n_hours_sunshine
 model:
-  xgb:
-    n_estimators: 300
-    max_depth: 6
-    learning_rate: 0.05
-    subsample: 0.8
-    colsample_bytree: 0.8
   hgb:
     max_iter: 300
   lstm:
-    hidden_size: 64
-    num_layers: 2
     epochs: 30
+    hidden_size: 64
     lr: 0.001
-
+    num_layers: 2
+  xgb:
+    colsample_bytree: 0.8
+    learning_rate: 0.05
+    max_depth: 6
+    n_estimators: 300
+    subsample: 0.8
+paths:
+  data_folder: data/raw
+  output_dir: outputs
+  processed_folder: data/processed
 run:
   enable_prophet: true
   enable_shap: true

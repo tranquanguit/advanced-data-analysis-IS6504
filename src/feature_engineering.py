@@ -12,8 +12,7 @@ def create_features(
     diseases: list[str],
     weather_vars: list[str],
     social_vars: list[str],
-    lags: list[int],
-    rolling_windows: list[int],
+    input_sequence_length: int,
     include_other_diseases: bool = False,
 ) -> pd.DataFrame:
     out = df.copy()
@@ -23,16 +22,17 @@ def create_features(
     for col in [target, *extra_disease_cols, *weather_vars, *social_vars]:
         if col not in out.columns:
             continue
-        for lag in lags:
+        for lag in range(1, input_sequence_length + 1):
             out[f"{col}_lag{lag}"] = out.groupby(PROVINCE_COL)[col].shift(lag)
 
-    for w in rolling_windows:
-        out[f"{target}_rollmean_{w}"] = (
-            out.groupby(PROVINCE_COL)[target].shift(1).rolling(window=w).mean().reset_index(level=0, drop=True)
-        )
-        out[f"{target}_rollstd_{w}"] = (
-            out.groupby(PROVINCE_COL)[target].shift(1).rolling(window=w).std().reset_index(level=0, drop=True)
-        )
+    for w in [3, 6]:
+        if w <= input_sequence_length:
+            out[f"{target}_rollmean_{w}"] = (
+                out.groupby(PROVINCE_COL)[target].shift(1).rolling(window=w).mean().reset_index(level=0, drop=True)
+            )
+            out[f"{target}_rollstd_{w}"] = (
+                out.groupby(PROVINCE_COL)[target].shift(1).rolling(window=w).std().reset_index(level=0, drop=True)
+            )
 
     out["month_sin"] = np.sin(2 * np.pi * out["month"] / 12)
     out["month_cos"] = np.cos(2 * np.pi * out["month"] / 12)

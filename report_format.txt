@@ -1,0 +1,96 @@
+Technical Report
+
+A. Information
+Tên đề tài:
+Môn học: Phân Tích Dữ Liệu Nâng Cao
+Thời gian thực hiện: 01/2026 - 04/2026
+Nhóm:
+Thành viên:
+Giảng viên hướng dẫn:
+
+B. Content
+(Yêu cầu:
+Viết rõ ràng, ngắn gọn. Main content version đầu ≤15 pages, version cuối ≤18 pages.
+Không cần viết hết các mục ngay từ đầu. Điền dần vào các mục chính theo thứ tự: Methodology / Experiments / 1 số ý Introduction → Related Work / Discussion → Conclusion → Introduction → Abstract.)
+(AI Policy:
+You may use AI tools to support your writing / working.
+However, you are fully accountable for all content / style / format in your work.
+Any errors in the work are your errors. Make sure to fix them before submitting.
+If the final work had low quality, the score would be low, regardless of AI usage.
+NOTE: 
+Kết quả thực, nội dung thực quan trọng hơn viết bóng bẩy.
+Báo cáo cần bám theo những gì đã làm được thực, tập trung vào nội dung và kết quả thực. Không lạm dụng AI viết tràn lan không có cơ sở.
+Nếu report/code/results có chứa nội dung giả mạo, không có thực, do người hoặc AI bịa ra → vi phạm đạo đức học thuật: xử lý theo quy định (0 điểm).)
+Abstract:
+
+1. Introduction:
+1.1 Motivation
+Nêu khái quát vấn đề thực tế hoặc nghiên cứu liên quan, dẫn dắt đến cụ thể.
+Cho người đọc hiểu vấn đề và thấy tại sao nó đáng để nghiên cứu.
+1.2 Problem Statement & Research Gap
+Mô tả rõ bài toán sẽ được giải quyết. Mô tả các cách tiếp cận hiện có.
+Xác định khoảng trống nghiên cứu (research gap) mà nhóm muốn giải quyết.
+1.3 Research Questions & Hypotheses
+Liệt kê rõ các research questions (câu hỏi mà khi trả lời sẽ lấp đầy research gap).
+Nêu các hypotheses (câu trả lời phỏng đoán cho các research questions).
+1.4 Objectives & Scope
+Nêu mục tiêu chung. Sau đó liệt kê các tác vụ cụ thể.
+Nêu assumptions, constraints, scope, out of scope.
+1.5 Contributions
+Brief summary of your approach. 
+Những điểm mới hoặc điểm mạnh so với baseline.
+Liệt kê rõ expected findings & sản phẩm deliverables chính.
+2. Related Work:
+2.1 Background Knowledge
+Các định nghĩa, quy ước ký hiệu, kiến thức nền tảng cần thiết cho người đọc.
+2.2 Prior Work Comparison & Limitations
+Tóm tắt một số bài báo, blogs, datasets, models, techniques liên quan. 
+Điểm mạnh / điểm yếu của các công trình trước đó. Dẫn dắt đến research gap.
+2.3 Positioning of This Work
+Xác định vị trí của đề tài so với các nghiên cứu khác, đề tài đóng góp thêm điều gì.
+3. Methodology:
+3.1 Overview of Approach
+Mô tả ngắn gọn kiến trúc tổng thể.
+Kèm sơ đồ:
+Kiến trúc framework, các components nếu là đề tài ứng dụng.
+Kiến trúc pipeline, các bước phân tích nếu là đề tài phân tích.
+Kiến trúc mô hình / thuật toán / quy trình nếu là đề tài nghiên cứu.
+3.2 Data & Data Pipeline
+Nguồn và cách thu thập dữ liệu, kích thước, đặc tính, mức độ nhiễu.
+Các bước xử lý: cleaning, filtering, splitting, normalization…
+3.3 Evaluation Protocol
+How you design the evaluation plan for the results.
+Metrics (e.g., accuracy, F1, RMSE, latency, throughput…).
+Baselines hoặc benchmarks để so sánh.
+3.4 System Design / Model Design
+Nếu là AI model: Model selection with justification. Algorithm & architecture details.
+Nếu là blockchain/SNA/AI systems: mô tả kỹ thuật, framework, protocol, pipeline…
+Nếu là software systems: mô hình kiến trúc, các modules, components.
+3.5 Training & Implementation Details
+How you design the implementation and training of the model.
+Training procedure, optimization method, hyperparameters tuning, hardware…
+Công cụ & thư viện: Python, PyTorch, NetworkX, Solidity, Web3, Neo4j…
+4. Experiments and Results:
+4.1 Experimental Settings
+How you actually run the experiments: dataset cụ thể, bước tiền xử lý, model cụ thể, giá trị hyperparameter, phần cứng & phần mềm…
+4.2 Main Quantitative Results
+Bảng kết quả, so sánh với baseline.
+Plots & Charts (precision/recall, error curves, metrics…).
+4.3 Main Qualitative Results (nếu có)
+Ví dụ minh hoạ, case studies, visualization…
+4.4 Empirical Analyses
+Ablation Study: Kiểm tra tác dụng của từng thành phần trong hệ thống / mô hình.
+Error Analysis: Phân tích lý do một số samples bị dự đoán sai.
+Failure Analysis: Những trường hợp model / hệ thống thất bại.
+Statistical Analysis: Kiểm thử giả thuyết thống kê, nếu cần.
+Complexity Analysis: Đo chi phí thời gian / không gian, nếu cần.
+5. Discussion:
+So với hypothesis, giải thích ý nghĩa của kết quả. Bài học rút ra từ các kết quả.
+So với mục tiêu ban đầu, những gì làm tốt & những hạn chế.
+6. Conclusion and Future Work:
+6.1 Conclusion
+Tóm tắt toàn bộ đóng góp và kết quả chính. Nêu mức độ thành công của mục tiêu.
+6.2 Future Work
+Các hướng cải thiện (tăng độ chính xác, mở rộng dataset, thêm module mới…).
+References:
+Cite all datasets, papers, libraries, tools used… in IEEE or APA format.
