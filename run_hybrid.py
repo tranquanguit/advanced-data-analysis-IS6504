@@ -58,7 +58,7 @@ def main() -> None:
     if run_cfg.get("run_forecasting", True):
         forecasting_config = resolve_path(config_dir, paths_cfg.get("forecasting_config", "../configs/default.yaml"))
         try:
-            run_command([sys.executable, "run_all.py", "--config", str(forecasting_config)], cwd=root_dir)
+            run_command([sys.executable, "run_scenarios.py", "--config", str(forecasting_config)], cwd=root_dir)
         except subprocess.CalledProcessError as exc:
             msg = f"Forecasting step failed: {exc}"
             step_errors.append(msg)

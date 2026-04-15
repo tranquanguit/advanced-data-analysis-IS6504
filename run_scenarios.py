@@ -80,6 +80,12 @@ if __name__ == "__main__":
         update_config(scenario)
         try:
             run_pipeline()
+
+            try:
+                subprocess.run(["python", "build_hybrid_report.py", "--config", CONFIG_PATH], check=True)
+            except subprocess.CalledProcessError as exc:
+                print(f"[WARN] Report build step failed: {exc}")
+
             copy_results(scenario["id"])
             print(f"--- Successfully completed {scenario['id']} ---")
         except Exception as e:

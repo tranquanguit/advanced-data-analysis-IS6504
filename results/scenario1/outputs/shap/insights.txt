@@ -1,3 +1,3 @@
-Top 3 important features globally: ['Dengue_fever_rates_lag1', 'Dengue_fever_rates_rollmean_3', 'month_cos']
+Top 3 important features globally: ['Dengue_fever_rates_lag1', 'Dengue_fever_rates_rollmean_3', 'Diarrhoea_rates']
 Lag effects detected from top features: ['Dengue_fever_rates_lag1']
 Strongest regional heterogeneity observed on: Dengue_fever_rates_lag1
