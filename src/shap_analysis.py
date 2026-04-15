@@ -6,6 +6,29 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import shap
 
+# --- Workaround for SHAP + XGBoost >= 2.1.0 compatibility bug ---
+# SHAP <= 0.45 fails because XGBoost >= 2.1.0 outputs base_score as an array (e.g., '[0.5]')
+# instead of a string float. We monkey-patch the ubjson decoder in SHAP to fix this.
+try:
+    import shap.explainers._tree
+    _old_decode = shap.explainers._tree.decode_ubjson_buffer
+
+    def _custom_decode(fd):
+        jmodel = _old_decode(fd)
+        try:
+            val = jmodel.get("learner", {}).get("learner_model_param", {}).get("base_score")
+            if isinstance(val, str) and val.startswith('[') and val.endswith(']'):
+                import json
+                jmodel["learner"]["learner_model_param"]["base_score"] = str(json.loads(val)[0])
+        except Exception:
+            pass
+        return jmodel
+
+    shap.explainers._tree.decode_ubjson_buffer = _custom_decode
+except ImportError:
+    pass
+# -------------------------------------------------------------
+
 
 def run_shap_analysis(model, x_background, x_test, feature_names: list[str], output_dir: Path) -> pd.DataFrame:
     output_dir.mkdir(parents=True, exist_ok=True)
