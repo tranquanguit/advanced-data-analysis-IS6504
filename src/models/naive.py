@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.config import PROVINCE_COL
+PROVINCE_COL = "province"
 
 
 def naive_predict(df: pd.DataFrame, target: str, horizon: int) -> pd.Series:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.config import PROVINCE_COL
+PROVINCE_COL = "province"
 
 
 def create_features(

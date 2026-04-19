@@ -53,13 +53,52 @@ def ensure_dirs(cfg):
     }
 
 
-def build_feature_cols(df: pd.DataFrame, target: str, horizons: list[int]) -> list[str]:
+def build_feature_cols(
+    df: pd.DataFrame,
+    target: str,
+    horizons: list[int],
+    weather_vars: list[str],
+    social_vars: list[str],
+    diseases: list[str] | None = None,
+    include_other_diseases: bool = True,
+) -> list[str]:
+    """Build feature column list using a strict WHITELIST approach.
+
+    Only columns derivable from config-declared variables are allowed:
+    - target lags & rolling stats
+    - weather_vars (raw + lags)
+    - social_vars (raw + lags)
+    - disease lags (when include_other_diseases=True)
+    - month_sin, month_cos
+    """
+    # Build the set of allowed base variables
+    allowed_bases = {target, *weather_vars, *social_vars}
+    if include_other_diseases and diseases:
+        other_diseases = {d for d in diseases if d != target}
+        allowed_bases |= other_diseases
+
+    # Build full whitelist: raw column OR derived (lag, rolling, etc.)
+    allowed = set()
+    for col in df.columns:
+        if col in ("month_sin", "month_cos"):
+            allowed.add(col)
+            continue
+        # Check if column matches a config base variable or its derived form
+        for base in allowed_bases:
+            if col == base or col.startswith(f"{base}_lag") or col.startswith(f"{base}_roll"):
+                allowed.add(col)
+                break
+
+    # Exclude non-feature columns, target horizons, and raw case counts
     exclude = {"year", "month", "date", "province", target} | {f"{target}_t+{h}" for h in horizons}
-    # Avoid leakage/double-counting when target is a rate derived from cases
+    # When cross-disease is disabled, also exclude raw disease columns
+    if not include_other_diseases and diseases:
+        exclude |= {d for d in diseases if d != target}
+
     return [
-        c
-        for c in df.columns
-        if c not in exclude
+        c for c in df.columns
+        if c in allowed
+        and c not in exclude
         and pd.api.types.is_numeric_dtype(df[c])
         and not c.endswith("_cases")
     ]
@@ -107,7 +146,14 @@ def run_pipeline(config_path: str):
     df_all.to_csv(dirs["processed"] / "dataset_modeling.csv", index=False)
 
     train, val, test = split_train_val_test(df_all, train_end, val_end, test_start, test_end)
-    feature_cols = build_feature_cols(df_all, target, horizons)
+    feature_cols = build_feature_cols(
+        df_all, target, horizons,
+        weather_vars=weather_vars,
+        social_vars=social_vars,
+        diseases=diseases,
+        include_other_diseases=exp.get("include_other_diseases_as_features", False),
+    )
+    print(f"[INFO] Features selected: {len(feature_cols)} (whitelist from config)")
 
     scaler = StandardScaler()
     x_train_df = pd.DataFrame(scaler.fit_transform(train[feature_cols]), columns=feature_cols, index=train.index)

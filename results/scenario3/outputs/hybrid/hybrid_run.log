@@ -20,3 +20,13 @@ ERROR: Forecasting step failed: Command '['C:\\Users\\TRAN VAN QUANG\\AppData\\L
 === Hybrid run started at 2026-04-12T07:26:59.841886 ===
 Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
 Completed at 2026-04-12T07:36:03.558384
+
+=== Hybrid run started at 2026-04-18T15:46:44.829206 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+Completed at 2026-04-18T15:58:11.138087
+ERROR: Non-linear step failed: Command '['Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\.venv\\Scripts\\python.exe', 'run_analysis.py', '--config', 'Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\non-linear-correlation-analysis\\configs\\default.yaml']' returned non-zero exit status 1.
+
+=== Hybrid run started at 2026-04-18T16:04:22.963800 ===
+Config: Q:\Learning\1. Master\IS6504\advanced-data-analysis-IS6504\configs\hybrid_report.yaml
+Completed at 2026-04-18T16:12:18.341354
+ERROR: Non-linear step failed: Command '['Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\.venv\\Scripts\\python.exe', 'run_analysis.py', '--config', 'Q:\\Learning\\1. Master\\IS6504\\advanced-data-analysis-IS6504\\non-linear-correlation-analysis\\configs\\default.yaml']' returned non-zero exit status 1.
