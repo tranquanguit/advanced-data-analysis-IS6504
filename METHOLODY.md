@@ -2,599 +2,676 @@
 
 ## 3.1 Overview of Approach
 
-Đồ án được thiết kế như một nghiên cứu thực nghiệm về dự báo chuỗi thời gian đa biến cho bệnh truyền nhiễm theo tháng tại cấp tỉnh, với trọng tâm là đánh giá vai trò của yếu tố khí hậu và so sánh hiệu quả giữa ba nhóm tiếp cận: (i) baseline đơn giản dựa trên lịch sử chuỗi, (ii) mô hình chuỗi thời gian cổ điển, và (iii) mô hình học máy/học sâu khai thác đặc trưng trễ. Kiến trúc tổng thể của hệ thống được triển khai dưới dạng một pipeline phân tích thống nhất, trong đó dữ liệu đầu vào được chuẩn hóa về cấu trúc theo từng tỉnh, sau đó đi qua các bước tiền xử lý, xây dựng đặc trưng, tạo nhãn đa bước dự báo, huấn luyện mô hình, đánh giá định lượng, và cuối cùng là phân tích khả giải mô hình bằng SHAP.
+### 3.1.1 Tổng quan kiến trúc
 
-Về bản chất, đây là một pipeline nghiên cứu theo hướng "data-driven forecasting + explainability". Thành phần trung tâm của pipeline là bộ đặc trưng trễ và rolling statistics, đóng vai trò chuyển đổi dữ liệu chuỗi thời gian theo tỉnh thành một không gian đặc trưng có thể được sử dụng đồng thời bởi mô hình cây tăng cường (XGBoost, HistGradientBoosting), mô hình học sâu dạng LSTM, cũng như các baseline đối chứng. Kiến trúc này giúp bảo đảm tính nhất quán trong việc so sánh mô hình, vì tất cả các mô hình đều được đánh giá trên cùng một khung chia tập dữ liệu theo thời gian và cùng tập chỉ số đánh giá.
+Đồ án này trình bày một **hệ thống phân tích lai (Hybrid Analysis Pipeline)** nhằm nghiên cứu mối quan hệ giữa các yếu tố khí hậu, xã hội và dịch bệnh truyền nhiễm tại Việt Nam, đồng thời xây dựng các mô hình dự báo dịch bệnh đa tỉnh, đa chân trời thời gian. Hệ thống được thiết kế theo **kiến trúc pipeline hai nhánh song song**, tích hợp kết quả tại bước cuối cùng để tạo ra báo cáo tổng hợp (Hybrid Report).
 
-Hình dưới đây mô tả kiến trúc pipeline tổng thể của đồ án:
+Hai nhánh chính bao gồm:
+
+1. **Nhánh phân tích tương quan phi tuyến (Non-Linear Correlation Analysis Pipeline):** Đo lường và xếp hạng các mối quan hệ phụ thuộc phi tuyến có trễ (lagged non-linear dependencies) giữa các biến dịch bệnh, khí hậu và xã hội trên toàn bộ 55 tỉnh/thành phố. Phân tích sử dụng các phép đo phi tuyến bao gồm Distance Correlation, Mutual Information, Spearman Correlation, Kendall Tau và Pearson Correlation, kết hợp với kỹ thuật kiểm soát yếu tố nhiễu (confound control) theo tháng và tỉnh.
+
+2. **Nhánh dự báo chuỗi thời gian (Forecasting Pipeline):** Xây dựng và đánh giá nhiều mô hình dự báo tỷ lệ mắc bệnh theo kiến trúc **MIMO (Multi-Input Multi-Output)**, với cửa sổ đầu vào 12 tháng và tầm nhìn dự báo lên đến 6 tháng tương lai. Các mô hình bao gồm: Naive, Seasonal Naive (baselines), Prophet (chuỗi thời gian cổ điển), XGBoost, HistGradientBoosting (học máy dạng bảng), và LSTM (học sâu chuỗi).
+
+3. **Module tích hợp (Hybrid Report Builder):** Tổng hợp kết quả từ hai nhánh trên thành một báo cáo thống nhất, kết nối phát hiện phi tuyến với hiệu năng dự báo.
+
+### 3.1.2 Sơ đồ kiến trúc pipeline tổng thể
+
+<!-- TODO: Chèn hình ảnh sơ đồ pipeline tổng thể -->
+<!-- Gợi ý: Vẽ sơ đồ bằng draw.io hoặc Mermaid với cấu trúc sau -->
 
 ```mermaid
-flowchart LR
-    A["Raw Excel files by province"] --> B["Data loading and schema checking"]
-    B --> C["Cleaning and harmonization<br/>drop unused columns, create date, fill missing"]
-    C --> D["Exploratory analysis<br/>seasonality, climate lag correlation, disease correlation"]
-    D --> E["Feature engineering<br/>lags, rolling statistics, month encoding"]
-    E --> F["Multi-horizon target construction<br/>t+1, t+2, t+3"]
-    F --> G["Time-based split<br/>train / validation / test"]
-    G --> H["Feature scaling for ML/DL models"]
-    H --> I["Baseline models<br/>Naive, Seasonal Naive, Prophet"]
-    H --> J["Tabular models<br/>XGBoost, HistGradientBoosting"]
-    H --> K["Deep learning model<br/>LSTM"]
-    I --> L["Evaluation and statistical testing"]
-    J --> L
-    K --> L
-    L --> M["Explainability<br/>SHAP global and by province"]
-    M --> N["Outputs<br/>metrics, plots, predictions, insights"]
+flowchart TD
+    subgraph INPUT["Dữ liệu đầu vào"]
+        A["55 file Excel<br/>(Tỉnh/Thành phố)<br/>1997–2017"]
+    end
+
+    subgraph NL["Nhánh 1: Phân tích phi tuyến"]
+        B1["Nạp dữ liệu &<br/>Đánh giá chất lượng"]
+        B2["Dịch chuyển trễ<br/>(Lag Shift: 0–6 tháng)"]
+        B3["Kiểm soát nhiễu<br/>(Confound Control:<br/>Month + Province)"]
+        B4["Tính toán chỉ số phi tuyến<br/>(Distance Corr, MI,<br/>Spearman, Kendall, Pearson)"]
+        B5["Xếp hạng Composite Score<br/>(Weighted Ranking)"]
+        B6["Phân tích dị biệt<br/>cấp tỉnh (Province<br/>Heterogeneity)"]
+        B7["Heatmap, Biểu đồ<br/>& Insight tự động"]
+    end
+
+    subgraph FC["Nhánh 2: Dự báo chuỗi thời gian"]
+        C1["Nạp & Tiền xử lý<br/>dữ liệu"]
+        C2["Feature Engineering<br/>(Lag, Rolling Stats,<br/>Cyclical Encoding)"]
+        C3["Tạo mục tiêu<br/>đa chân trời<br/>(t+1 → t+6)"]
+        C4["Phân chia tập dữ liệu<br/>(Train / Val / Test)"]
+        C5["Chuẩn hóa<br/>(StandardScaler)"]
+        C6["Huấn luyện mô hình<br/>(Naive, Seasonal Naive,<br/>Prophet, XGBoost,<br/>HistGB, LSTM)"]
+        C7["Đánh giá<br/>(MAE, RMSE, SMAPE,<br/>Outbreak P/R)"]
+        C8["Giải thích mô hình<br/>(SHAP Analysis)"]
+    end
+
+    subgraph OUT["Tích hợp báo cáo"]
+        D["Hybrid Report<br/>Summary"]
+    end
+
+    A --> B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7
+    A --> C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> C8
+    B7 --> D
+    C8 --> D
 ```
 
-Ở mức kỹ thuật triển khai, đồ án được tổ chức thành các nhóm thành phần chính:
+### 3.1.3 Quy trình thực thi tự động
 
-- `data_loader.py`: đọc dữ liệu thô từ nhiều tệp Excel theo tỉnh, kiểm tra cấu trúc cột, tạo trục thời gian và đồng bộ dữ liệu.
-- `eda.py`: thực hiện phân tích khám phá dữ liệu ban đầu, bao gồm seasonality, phân phối của biến đích, tương quan trễ giữa biến khí hậu với bệnh, và tương quan giữa các bệnh.
-- `feature_engineering.py`: xây dựng các đặc trưng trễ, rolling mean, rolling standard deviation và mã hóa chu kỳ tháng.
-- `dataset_builder.py`: tạo nhãn dự báo nhiều bước (`t+1`, `t+2`, `t+3`) và tách tập huấn luyện/xác thực/kiểm tra theo thời gian.
-- `models/*`: hiện thực các baseline Naive, Seasonal Naive, Prophet; mô hình tabular (XGBoost, HistGradientBoosting); và mô hình học sâu LSTM.
-- `evaluation.py`: tính toán các chỉ số định lượng cho dự báo và kiểm định ý nghĩa thống kê.
-- `shap_analysis.py` và `insight_extractor.py`: thực hiện giải thích mô hình và sinh mô tả insight tự động phục vụ báo cáo.
+Toàn bộ hệ thống được điều phối bởi ba file runner chính:
 
-Vì đồ án được định hướng theo nghiên cứu thực nghiệm, pipeline không chỉ nhằm tối ưu độ chính xác dự báo mà còn nhằm trả lời ba câu hỏi nghiên cứu trọng tâm:
+| File | Chuc nang | Dau ra |
+|:---|:---|:---|
+| `run_all.py` | Thuc thi toan bo pipeline du bao cho mot kich ban | Metrics, predictions, plots, SHAP |
+| `run_nonlinear.py` | Chay rieng phan tich tuong quan phi tuyen | Non-linear tables, plots, insights |
+| `run_hybrid.py` | **Dieu phoi chinh**: chay phi tuyen + 6 kich ban du bao tu dong | Tat ca ket qua trong `results/` |
 
-- Các mô hình có khai thác được tín hiệu vượt lên trên baseline đơn giản hay không?
-- Các biến khí hậu và biến ngữ cảnh có thực sự bổ sung sức mạnh dự báo ngoài tín hiệu tự hồi quy của bệnh hay không?
-- Trong điều kiện dữ liệu theo tỉnh có độ dài vừa phải, cách tiếp cận nào là phù hợp hơn: chuỗi thời gian cổ điển, supervised tabular learning, hay deep sequence learning?
+Toan bo cau hinh thi nghiem duoc quan ly tap trung qua `configs/default.yaml`. File `run_hybrid.py` ho tro `--skip-nonlinear`, `--skip-scenarios`, va `--scenarios N` de chay chon loc.
+
+---
 
 ## 3.2 Data & Data Pipeline
 
-### 3.2.1 Nguồn dữ liệu, đơn vị quan sát và cấu trúc dữ liệu
+### 3.2.1 Nguồn dữ liệu
 
-Dữ liệu đầu vào được lưu trong thư mục `data/raw/` dưới dạng nhiều tệp Excel, mỗi tệp tương ứng với một tỉnh/thành phố. Theo cấu trúc hiện tại của đồ án, số lượng đơn vị không gian là 53 tỉnh. Mỗi quan sát được lập theo tháng, bao gồm hai chiều chỉ mục chính:
+Dữ liệu được thu thập từ các nguồn thống kê y tế và khí tượng chính thức của Việt Nam, bao gồm dữ liệu giám sát dịch bệnh truyền nhiễm, dữ liệu khí tượng thủy văn và dữ liệu dân số – xã hội. Tập dữ liệu bao gồm **55 tỉnh/thành phố** của Việt Nam, với chuỗi thời gian theo **tần suất tháng** trong giai đoạn **1997–2017** (khoảng 20 năm, tương đương ~240 điểm dữ liệu mỗi tỉnh).
 
-- `province`: đơn vị hành chính cấp tỉnh.
-- `date`: thời điểm tháng, được tái tạo từ hai cột gốc `year` và `month`.
+<!-- TODO: Bổ sung nguồn cụ thể: Tổng cục Thống kê, Trung tâm khí tượng quốc gia... -->
 
-Khoảng thời gian của dữ liệu, theo phần mô tả hiện hành của dự án, kéo dài từ năm 1997 đến năm 2017. Như vậy, nếu toàn bộ chuỗi của tất cả các tỉnh là đầy đủ, số lượng quan sát theo hàng dữ liệu trước khi tạo đặc trưng có thể đạt mức khoảng hơn mười nghìn dòng. Tuy nhiên, số lượng chính xác cần được xác nhận lại trực tiếp từ tập dữ liệu đã xử lý hoặc từ tệp `data/processed/dataset_modeling.csv` để điền vào bản thảo cuối cùng.
+Mỗi tỉnh/thành phố được lưu trữ trong một file Excel riêng biệt (định dạng `.xlsx`), đặt tên theo quy ước `squeezed_<Tên tỉnh>.xlsx`. Mỗi file chứa các quan sát hàng tháng với các nhóm biến sau:
 
-Về nội dung biến, bộ dữ liệu đang hỗ trợ ba nhóm biến chính:
+#### Bảng 1: Mô tả các nhóm biến trong tập dữ liệu
 
-- Nhóm biến bệnh truyền nhiễm:
-  - `Influenza_rates`, `Dengue_fever_rates`, `Diarrhoea_rates`
-  - và trong một số tệp còn có các cột số ca tuyệt đối như `Influenza_cases`, `Dengue_fever_cases`, `Diarrhoea_cases`
-- Nhóm biến khí hậu:
-  - `Total_Evaporation`
-  - `Total_Rainfall`
-  - `Max_Daily_Rainfall`
-  - `n_raining_days`
-  - `Average_temperature`
-  - `Average_Humidity`
-  - `n_hours_sunshine`
-- Nhóm biến xã hội và hạ tầng:
-  - `poverty_rate`
-  - `clean_water_rate_all`
-  - `urban_water_usage_rate`
-  - `toilet_rate`
-  - `population_density`
+| Nhóm biến | Tên biến | Mô tả |
+|:---|:---|:---|
+| **Thời gian** | `year`, `month` | Năm và tháng quan sát |
+| **Bệnh truyền nhiễm** | `Dengue_fever_rates` | Tỷ lệ mắc sốt xuất huyết (/100.000 dân) |
+|  | `Influenza_rates` | Tỷ lệ mắc cúm mùa (/100.000 dân) |
+|  | `Diarrhoea_rates` | Tỷ lệ mắc tiêu chảy (/100.000 dân) |
+|  | `Dengue_fever_cases`, `Influenza_cases`, `Diarrhoea_cases` | Số ca mắc tuyệt đối tương ứng |
+| **Khí hậu** | `Total_Evaporation` | Tổng lượng bốc hơi (mm) |
+|  | `Total_Rainfall` | Tổng lượng mưa (mm) |
+|  | `Max_Daily_Rainfall` | Lượng mưa ngày lớn nhất (mm) |
+|  | `n_raining_days` | Số ngày mưa trong tháng |
+|  | `Average_temperature` | Nhiệt độ trung bình (°C) |
+|  | `Max_Average_Temperature` | Nhiệt độ trung bình cao nhất (°C) |
+|  | `Min_Average_Temperature` | Nhiệt độ trung bình thấp nhất (°C) |
+|  | `Max_Absolute_Temperature` | Nhiệt độ tuyệt đối cao nhất (°C) |
+|  | `Min_Absolute_Temperature` | Nhiệt độ tuyệt đối thấp nhất (°C) |
+|  | `Average_Humidity` | Độ ẩm trung bình (%) |
+|  | `Min_Humidity` | Độ ẩm tối thiểu (%) |
+|  | `n_hours_sunshine` | Số giờ nắng trong tháng |
+| **Xã hội – Dân số** | `population_male`, `population_female` | Dân số nam/nữ |
+|  | `population_urban`, `population_countryside` | Dân số thành thị/nông thôn |
 
-Trong cấu hình hiện tại, biến mục tiêu mặc định là `Dengue_fever_rates`; tuy nhiên, pipeline được thiết kế để có thể cấu hình lại sang `Influenza_rates` hoặc `Diarrhoea_rates` mà không cần sửa mã nguồn. Ngoài ra, hệ thống cũng hỗ trợ tùy chọn tự tính biến đích theo dạng tỷ lệ trên 100.000 dân (`compute_rate_per100k`) từ số ca mắc và tổng dân số nam + nữ, nếu trong dữ liệu đầu vào không tồn tại cột tỷ lệ đã chuẩn hóa. Điểm này cho phép mở rộng các kịch bản phân tích trong tương lai, nhưng trong các chạy chính của đồ án, nhóm đã chủ động giữ cấu hình rate có sẵn để bảo đảm tính nhất quán với dữ liệu gốc.
+### 3.2.2 Đặc điểm dữ liệu và mức độ nhiễu
 
-Về mặt chất lượng dữ liệu, dữ liệu thuộc loại bảng quan sát thực địa tổng hợp theo tháng nên có thể tồn tại nhiễu do sai số báo cáo, chậm cập nhật, hoặc khác biệt về đặc trưng giữa các tỉnh. Dù mã nguồn hiện tại không triển khai bước phát hiện ngoại lệ chuyên biệt, pipeline đã xử lý tình huống thiếu giá trị thông qua nội suy theo hướng lan truyền trong từng tỉnh, giúp giảm độ gián đoạn của chuỗi mà vẫn giữ tính liên tục theo thời gian.
+- **Kích thước tổng thể:** ~55 tỉnh × ~240 tháng ≈ 13.200 quan sát (trước khi loại bỏ giá trị thiếu).
+- **Tính mùa vụ:** Dữ liệu bệnh truyền nhiễm (đặc biệt sốt xuất huyết) biểu hiện **tính mùa vụ rõ rệt** với đỉnh dịch vào mùa mưa (khoảng tháng 6–11 tại khu vực phía Nam).
+- **Phân bố lệch phải (right-skewed):** Tỷ lệ mắc bệnh có phân bố không đối xứng, với đa số quan sát ở mức thấp và một số ít đỉnh dịch có giá trị rất cao (heavy tail).
+- **Dữ liệu thiếu:** Một số tỉnh/thành phố có chuỗi thời gian ngắn hơn (chẳng hạn Đắk Nông, Điện Biên do tách tỉnh), dẫn đến giá trị missing ở giai đoạn đầu. Tỷ lệ missing cũng khác nhau giữa các biến và các tỉnh.
+- **Biến tĩnh hoặc gần tĩnh:** Một số cặp (tỉnh, biến) có phương sai gần bằng 0 hoặc số giá trị unique quá ít, đặc biệt ở các biến dân số – xã hội ở các tỉnh nhỏ.
 
-Lưu ý cho bản thảo cuối:
-- [Cần bổ sung rõ nguồn gốc dữ liệu chính thức: ví dụ cơ quan y tế, cơ quan khí tượng, cổng dữ liệu mở, hay dữ liệu nhóm đã tổng hợp từ nghiên cứu trước.]
-- [Cần bổ sung số lượng dòng dữ liệu chính xác trước và sau các bước tạo lag/rolling.]
+### 3.2.3 Quy trình tiền xử lý dữ liệu (Data Pipeline)
 
-### 3.2.2 Quy trình nạp dữ liệu và làm sạch
+Quy trình tiền xử lý được thực hiện qua hai module chính: `data_loader.py` (nạp và làm sạch) và `feature_engineering.py` (tạo đặc trưng).
 
-Quy trình xử lý dữ liệu được bắt đầu tại hàm `load_all_provinces()` trong `src/data_loader.py`. Quy trình này gồm các bước chính sau:
+#### Bước 1: Nạp dữ liệu (Data Loading)
 
-1. Duyệt toàn bộ tệp Excel trong thư mục đầu vào theo thứ tự ổn định.
-2. Kiểm tra tính đầy đủ của hai cột cơ bản `year` và `month`; nếu thiếu, pipeline dừng và báo lỗi.
-3. Loại bỏ các cột không mang ý nghĩa phân tích hoặc chỉ đóng vai trò chỉ mục kỹ thuật, cụ thể là:
-   - `Unnamed: 0`
-   - `year_month`
-4. Tạo cột `province` từ tên tệp và tạo cột `date` dưới dạng chuẩn thời gian `YYYY-MM-01`.
-5. Nếu biến mục tiêu chưa tồn tại nhưng cờ `compute_rate_per100k` được bật, hệ thống sẽ cố gắng xây dựng biến đích từ `cases_col` và tổng dân số:
-   - `population_total = population_male + population_female`
-   - `target = cases / population_total * 100000`
-6. Ghép toàn bộ dữ liệu của các tỉnh thành một bảng thống nhất, sắp xếp theo `province` và `date`.
-7. Trong từng tỉnh, áp dụng `forward fill` kết hợp `backward fill` để lấp giá trị thiếu, nhằm tránh làm mất mẫu dữ liệu trong các bước tạo đặc trưng trễ.
+Hàm `load_all_provinces()` trong module `data_loader.py` thực hiện:
 
-Việc nội suy theo từng tỉnh có ý nghĩa quan trọng về mặt phương pháp luận, vì nó bảo đảm rằng thông tin giữa các tỉnh không bị trộn lẫn trong bước xử lý thiếu dữ liệu. Đồng thời, thao tác sắp xếp theo `province` và `date` từ đầu cũng là nền tảng để các bước tạo lag và tạo nhãn nhiều bước phía sau không làm rò rỉ thông tin tương lai.
+1. **Quét file:** Tự động tìm tất cả file `.xlsx` trong thư mục `data/raw/`, sắp xếp theo thứ tự ABC.
+2. **Kiểm tra cột bắt buộc:** Đảm bảo mỗi file chứa ít nhất hai cột `year` và `month`.
+3. **Gán nhãn tỉnh:** Tên tỉnh được trích xuất từ tên file (stem), gán vào cột `province`.
+4. **Tạo cột thời gian chuẩn:** Cột `date` được tạo ở định dạng `YYYY-MM-01` từ các cột `year` và `month`.
+5. **Loại bỏ cột không cần thiết:** Các cột thừa như `Unnamed: 0`, `year_month` được tự động xóa.
+6. **Tính toán tỷ lệ (tùy chọn):** Khi cờ `compute_rate_per100k = true`, hệ thống tự tính tỷ lệ mắc bệnh per 100.000 dân từ số ca mắc tuyệt đối (`cases_col`) chia cho tổng dân số (`population_male + population_female`).
 
-### 3.2.3 Phân tích khám phá dữ liệu (EDA)
+#### Bước 2: Xử lý giá trị thiếu (Missing Value Imputation)
 
-Trước khi huấn luyện mô hình, pipeline thực hiện một giai đoạn phân tích khám phá tự động thông qua hàm `run_eda()` trong `src/eda.py`. Giai đoạn này nhằm kiểm tra các giả định quan trọng về tính mùa vụ, phân phối của biến đích, và quan hệ giữa bệnh với yếu tố khí hậu hoặc giữa các bệnh với nhau.
+Sau khi nối (concatenate) tất cả các DataFrame thành một bảng duy nhất, dữ liệu được sắp xếp theo `(province, date)` và xử lý missing theo chiến lược **forward-fill rồi backward-fill trong từng tỉnh riêng biệt** (`ffill().bfill()` per province group). Chiến lược này:
+- Tránh **rò rỉ dữ liệu xuyên tỉnh** (cross-province leakage): giá trị của tỉnh A không được dùng để lấp giá trị thiếu của tỉnh B.
+- Ưu tiên giá trị gần nhất theo thời gian trong cùng tỉnh, phù hợp với đặc tính tự tương quan (autocorrelation) vốn có của chuỗi thời gian.
 
-Các phân tích được thực hiện bao gồm:
+#### Bước 3: Feature Engineering
 
-- Hồ sơ mùa vụ theo tháng:
-  - Tính trung bình giá trị mục tiêu theo từng tháng trong năm.
-  - Lưu biểu đồ `seasonality_month_profile.png`.
-- Phân phối của biến mục tiêu:
-  - Dựng histogram kết hợp KDE.
-  - Lưu biểu đồ `target_distribution.png`.
-- Tương quan trễ giữa biến khí hậu và biến đích:
-  - Với từng biến khí hậu, tính hệ số tương quan với biến đích tại các độ trễ từ 0 đến 6 tháng theo cấu trúc group-by từng tỉnh.
-  - Lưu tệp `lag_correlation.csv` và heatmap `lag_correlation_heatmap.png`.
-- Tương quan giữa các bệnh:
-  - Tính ma trận tương quan đồng thời điểm giữa các cột bệnh có trong cấu hình `diseases`.
-  - Lưu `disease_corr_matrix.csv` và `disease_corr_heatmap.png`.
-- Tương quan chéo theo độ trễ giữa các bệnh:
-  - Với mỗi cặp bệnh khác nhau, tính tương quan khi dịch trễ từ 0 đến 6 tháng.
-  - Lưu `disease_crosscorr.csv` và `disease_crosscorr_heatmap.png`.
+Module `feature_engineering.py` thực hiện tạo đặc trưng từ dữ liệu thô theo ba kỹ thuật chính:
 
-Các biểu đồ và bảng EDA có hai vai trò. Thứ nhất, chúng cung cấp bằng chứng thực nghiệm cho giả thuyết rằng dữ liệu có tính mùa vụ và có tác động trễ của yếu tố khí hậu. Thứ hai, chúng đóng vai trò cầu nối giữa kết quả định lượng của mô hình và diễn giải khoa học ở phần thảo luận.
+**a) Đặc trưng trễ (Lag Features):**
 
-### 3.2.4 Xây dựng đặc trưng
+Đối với mỗi biến quan trọng (biến mục tiêu, biến khí hậu, biến xã hội, và tùy chọn biến bệnh khác), hệ thống tạo ra các đặc trưng trễ từ lag = 1 đến lag = `input_sequence_length` (mặc định: 12 tháng). Ví dụ: `Dengue_fever_rates_lag1`, `Total_Rainfall_lag3`, v.v. Phép tạo lag sử dụng `groupby(province).shift(lag)` để đảm bảo không xảy ra rò rỉ dữ liệu xuyên tỉnh.
 
-Bộ đặc trưng học máy được xây dựng bởi hàm `create_features()` trong `src/feature_engineering.py`. Các đặc trưng được thiết kế theo nguyên tắc chỉ sử dụng thông tin quá khứ để dự báo tương lai, nhằm tránh data leakage.
+Số lượng đặc trưng lag phụ thuộc vào `input_sequence_length`: với giá trị mặc định 12, mỗi biến số sẽ sinh ra 12 đặc trưng lag tương ứng, mô hình hóa ảnh hưởng lên đến 12 tháng quá khứ.
 
-Các nhóm đặc trưng được sử dụng bao gồm:
+**b) Đặc trưng thống kê trượt (Rolling Statistics):**
 
-- Đặc trưng trễ của bệnh đích:
-  - Với danh sách lag cấu hình hiện tại `lags = [1, 2, 3]`, tạo các biến như:
-    - `target_lag1`
-    - `target_lag2`
-    - `target_lag3`
-- Đặc trưng trễ của biến khí hậu:
-  - Mỗi biến khí hậu cũng được sinh các lag tương tự trong từng tỉnh.
-- Đặc trưng trễ của biến xã hội:
-  - Các biến xã hội cũng được tạo lag theo cơ chế nhất quán để mô hình tabular và LSTM có thể truy cập thông tin bối cảnh trễ.
-- Đặc trưng bệnh khác (tùy chọn):
-  - Nếu `include_other_diseases_as_features = true`, pipeline sẽ sinh thêm lag của hai bệnh còn lại ngoài bệnh đích.
-  - Kịch bản này được dùng để kiểm tra giá trị dự báo liên bệnh nhưng không mặc định bật trong phân tích chính.
-- Đặc trưng thống kê trượt:
-  - `target_rollmean_3`
-  - `target_rollstd_3`
-  - Hai đặc trưng này được tính từ giá trị bệnh đích đã dịch lùi 1 bước, sau đó lấy trung bình và độ lệch chuẩn trên cửa sổ 3 tháng.
-- Mã hóa mùa vụ:
-  - `month_sin = sin(2π * month / 12)`
-  - `month_cos = cos(2π * month / 12)`
-  - Cách mã hóa này bảo toàn bản chất chu kỳ của tháng trong năm và tránh việc mô hình hiểu tháng 12 và tháng 1 là xa nhau một cách tuyến tính.
+Cho biến mục tiêu, hệ thống tính **trung bình trượt (rolling mean)** và **độ lệch chuẩn trượt (rolling std)** với các cửa sổ kích thước 3 và 6 tháng (áp dụng `shift(1)` trước khi rolling để tránh rò rỉ thông tin tương lai). Ví dụ:
+- `Dengue_fever_rates_rollmean_3`: trung bình của 3 tháng gần nhất (đã shift 1).
+- `Dengue_fever_rates_rollstd_6`: biến động 6 tháng gần nhất.
 
-Sau khi tạo đầy đủ đặc trưng trễ và rolling, pipeline loại bỏ các dòng phát sinh giá trị thiếu do thao tác shift/rolling. Đây là bước cần thiết để bảo đảm mọi mô hình học máy làm việc trên một ma trận đặc trưng hoàn chỉnh.
+**c) Mã hóa tuần hoàn cho tháng (Cyclical Month Encoding):**
 
-### 3.2.5 Tạo nhãn dự báo nhiều bước và chia tập dữ liệu
+Để mô hình hóa tính chu kỳ của thời gian (tháng 12 → tháng 1 liên tục), biến `month` được mã hóa bằng hàm sin và cos:
 
-Hàm `create_multi_horizon_targets()` trong `src/dataset_builder.py` tạo ra ba biến mục tiêu cho dự báo nhiều bước:
+$$month\_sin = \sin\left(\frac{2\pi \times month}{12}\right)$$
 
-- `target_t+1`
-- `target_t+2`
-- `target_t+3`
+$$month\_cos = \cos\left(\frac{2\pi \times month}{12}\right)$$
 
-Mỗi biến được sinh bằng cách dịch chuỗi bệnh đích theo hướng tương lai trong từng tỉnh. Vì vậy, mỗi mẫu huấn luyện tại thời điểm `t` được gắn với ba giá trị cần dự báo cho các tháng tiếp theo.
+Phép mã hóa này tạo ra hai đặc trưng liên tục, duy trì được khoảng cách tuần hoàn giữa các tháng (tháng 1 gần tháng 12 hơn tháng 6), vượt trội so với cách mã hóa one-hot hay giữ nguyên số nguyên.
 
-Sau đó, dữ liệu được chia theo thời gian bằng hàm `split_train_val_test()` như sau:
+#### Bước 4: Tạo mục tiêu đa chân trời (Multi-Horizon Target Creation)
 
-- Train: `date <= 2014-12-31`
-- Validation: `2015-01-01 <= date <= 2015-12-31`
-- Test: `2016-01-01 <= date <= 2017-12-31`
+Module `dataset_builder.py` tạo ra các biến mục tiêu tương lai bằng phép dịch ngược (negative shift) theo từng tỉnh:
 
-Việc chia theo thời gian thay vì chia ngẫu nhiên là yêu cầu bắt buộc đối với bài toán dự báo chuỗi thời gian, vì nó mô phỏng đúng tình huống triển khai thực tế: mô hình chỉ được học từ dữ liệu quá khứ và phải dự báo trên dữ liệu tương lai chưa từng thấy.
+$$y_{t+h} = \text{target}_{column}\text{.shift}(-h), \quad h \in \{1, 2, ..., H\}$$
 
-Ngoài ra, mã nguồn còn có một hàm `rolling_origin_folds()` phục vụ ý tưởng đánh giá rolling-origin theo thời gian. Tuy nhiên, trong phiên bản thực nghiệm chính hiện tại, hàm này mới đóng vai trò mở rộng tiềm năng và chưa phải một phần của giao thức đánh giá chính thức.
+với $H$ là số chân trời dự báo (mặc định: $H = 6$, tức dự báo từ t+1 đến t+6 tháng).
 
-### 3.2.6 Chuẩn hóa đặc trưng
+Kiến trúc này gọi là **MIMO (Multi-Input Multi-Output)**: một mô hình nhận đầu vào X tại thời điểm t và đồng thời xuất ra vector $[\hat{y}_{t+1}, \hat{y}_{t+2}, ..., \hat{y}_{t+H}]$, thay vì huấn luyện H mô hình riêng lẻ cho từng chân trời.
 
-Đối với các mô hình supervised learning và deep learning, ma trận đặc trưng được chuẩn hóa bằng `StandardScaler` của scikit-learn. Điểm quan trọng là bộ chuẩn hóa chỉ được fit trên tập train, sau đó mới áp dụng sang validation và test:
+Sau bước này, tất cả các hàng chứa giá trị `NaN` (do shift về quá khứ hoặc tương lai) được loại bỏ, đảm bảo tập dữ liệu hoàn chỉnh cho bước huấn luyện.
 
-- `x_train = fit_transform(train_features)`
-- `x_val = transform(val_features)`
-- `x_test = transform(test_features)`
+#### Bước 5: Phân chia tập dữ liệu (Train/Val/Test Split)
 
-Thiết kế này ngăn ngừa leakage từ validation/test vào quá trình học phân phối thống kê của dữ liệu.
+Dữ liệu được phân chia theo **thời gian (temporal split)** — phương pháp phân chia duy nhất phù hợp cho bài toán chuỗi thời gian — để tránh rò rỉ thông tin từ tương lai:
 
-Trong bước chọn cột đầu vào, pipeline loại bỏ các cột sau:
+| Tập dữ liệu | Giai đoạn | Mục đích |
+|:---|:---|:---|
+| **Train** | ≤ 31/12/2014 | Huấn luyện mô hình |
+| **Validation** | 01/01/2015 – 31/12/2015 | Tinh chỉnh siêu tham số (hyperparameter tuning) |
+| **Test** | 01/01/2016 – 31/12/2017 | Đánh giá hiệu năng cuối cùng |
 
-- `year`, `month`, `date`, `province`
-- biến đích hiện tại
-- ba cột nhãn tương lai `target_t+1`, `target_t+2`, `target_t+3`
-- toàn bộ cột có hậu tố `_cases`
+Phép phân chia này được thiết kế sao cho:
+- Toàn bộ quá trình tuning (grid search trên tập Val) diễn ra **trước khi** mô hình nhìn thấy tập Test.
+- Sau khi chọn siêu tham số tốt nhất, mô hình được **huấn luyện lại trên tập Train + Val** và đánh giá trên tập Test.
 
-Quy tắc cuối cùng rất quan trọng. Khi biến mục tiêu đang là một biến theo dạng tỷ lệ (`*_rates`), việc giữ lại `*_cases` như một đặc trưng ở cùng thời điểm có thể tạo nên sự trùng lặp thông tin hoặc làm suy yếu tính diễn giải của mô hình. Vì vậy, các cột `_cases` được loại khỏi tập feature trong phiên bản hiện tại để bảo đảm tính nhất quán phương pháp.
+#### Bước 6: Chuẩn hóa đặc trưng (Feature Normalization)
+
+Toàn bộ đặc trưng số được chuẩn hóa bằng `StandardScaler` (z-score normalization):
+
+$$x_{scaled} = \frac{x - \mu_{train}}{\sigma_{train}}$$
+
+Trong đó $\mu_{train}$ và $\sigma_{train}$ được **tính duy nhất trên tập Train** và áp dụng cố định (transform) lên tập Val và Test. Điều này đảm bảo không xảy ra rò rỉ thống kê (statistics leakage) từ dữ liệu tương lai.
+
+<!-- TODO: Chèn hình minh họa Data Pipeline (Hình 2) -->
+
+---
 
 ## 3.3 Evaluation Protocol
 
-### 3.3.1 Thiết kế kế hoạch đánh giá
+### 3.3.1 Thiết kế giao thức đánh giá
 
-Kế hoạch đánh giá của đồ án được xây dựng nhằm trả lời đồng thời ba loại câu hỏi:
+Giao thức đánh giá được thiết kế nhằm đảm bảo tính **khách quan, tái lập được (reproducible)** và **có ý nghĩa thống kê**. Hệ thống đánh giá bao gồm ba tầng:
 
-- Mô hình nào dự báo chính xác hơn về mặt định lượng?
-- Mô hình có vượt được baseline đơn giản hay không?
-- Các kết quả có khả năng diễn giải và có ý nghĩa cho bài toán giám sát dịch tễ hay không?
+1. **Đánh giá hiệu năng dự báo tổng thể (Overall Forecasting Performance):** So sánh tất cả mô hình trên tập Test theo nhiều thước đo (metrics) tại từng chân trời dự báo.
+2. **Đánh giá khả năng phát hiện đợt dịch (Outbreak Detection):** Đánh giá khả năng cảnh báo sớm các đợt bùng phát dịch cao bất thường.
+3. **Kiểm định ý nghĩa thống kê (Statistical Significance Test):** Xác nhận sự vượt trội của mô hình so với baseline có ý nghĩa thống kê, không phải do ngẫu nhiên.
 
-Để phục vụ các câu hỏi trên, đồ án lựa chọn giao thức đánh giá nhiều tầng:
+### 3.3.2 Các thước đo đánh giá (Evaluation Metrics)
 
-- Tầng 1: đánh giá tổng thể trên test set bằng các metric sai số chuẩn cho dự báo hồi quy.
-- Tầng 2: đánh giá khả năng phát hiện đợt bùng phát thông qua precision và recall ở ngưỡng percentile cao.
-- Tầng 3: đánh giá theo tỉnh bằng MAE nhằm xem xét độ ổn định không gian.
-- Tầng 4: kiểm định ý nghĩa thống kê so với baseline mạnh nhất trong nhóm đơn giản.
-- Tầng 5: đánh giá định tính bằng SHAP, heatmap lag và tương quan liên bệnh.
+#### a) Mean Absolute Error (MAE)
 
-Thiết kế này giúp phần đánh giá không dừng ở một bảng số liệu tổng, mà mở rộng sang bình diện phân tích khoa học và khả năng ứng dụng thực tế.
+$$MAE = \frac{1}{n}\sum_{i=1}^{n}|y_i - \hat{y}_i|$$
 
-### 3.3.2 Chỉ số đánh giá
+MAE đo sai số trung bình tuyệt đối giữa giá trị thực và giá trị dự báo. Đây là **thước đo chính (primary metric)** trong đồ án, được báo cáo tại mỗi chân trời: MAE@1, MAE@2, ..., MAE@6. MAE có ưu điểm là robust (ít bị ảnh hưởng bởi outlier) và diễn giải trực quan (cùng đơn vị với biến mục tiêu).
 
-Đồ án sử dụng các chỉ số sau:
+#### b) Root Mean Squared Error (RMSE)
 
-#### a) MAE theo từng horizon
+$$RMSE = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y}_i)^2}$$
 
-Sai số tuyệt đối trung bình được tính cho từng bước dự báo:
+RMSE phạt nặng hơn các sai số lớn so với MAE, phù hợp để đánh giá mô hình trong bối cảnh sai số lớn cần được phát hiện (ví dụ: bỏ sót đỉnh dịch). Được báo cáo song song: RMSE@1, RMSE@2, ..., RMSE@6.
 
-- `MAE@1`
-- `MAE@2`
-- `MAE@3`
+#### c) Symmetric Mean Absolute Percentage Error (SMAPE)
 
-MAE được chọn làm chỉ số chính để so sánh mô hình vì dễ diễn giải, bền hơn RMSE trước ngoại lệ lớn, và phản ánh trực tiếp độ lệch dự báo trung bình.
+$$SMAPE = \frac{100\%}{n}\sum_{i=1}^{n}\frac{|y_i - \hat{y}_i|}{(|y_i| + |\hat{y}_i|)/2}$$
 
-#### b) RMSE theo từng horizon
+SMAPE cung cấp thước đo sai số **theo tỷ lệ phần trăm**, cho phép so sánh giữa các loại bệnh hoặc các tỉnh có quy mô khác nhau. Giá trị SMAPE nằm trong khoảng [0%, 200%], với 0% là hoàn hảo. Xử lý đặc biệt: khi cả $y_i = \hat{y}_i = 0$, mẫu số được thay thế bằng 1 để tránh phép chia cho 0.
 
-`RMSE@1`, `RMSE@2`, `RMSE@3` được dùng để phản ánh mức độ nhạy của mô hình trước các sai số lớn. Đây là chỉ số bổ sung quan trọng trong bối cảnh dữ liệu dịch tễ có thể xuất hiện các đỉnh dịch hoặc outlier theo mùa.
+#### d) Outbreak Precision & Recall (tại phân vị thứ 95)
 
-#### c) SMAPE theo từng horizon
+Để đánh giá khả năng cảnh báo sớm đợt bùng phát dịch, hệ thống định nghĩa **ngưỡng bùng phát (outbreak threshold)** bằng phân vị thứ 95 của phân bố giá trị thực trên tập Test:
 
-SMAPE được dùng để chuẩn hóa sai số theo quy mô của giá trị thực tế và dự báo. Chỉ số này đặc biệt hữu ích khi so sánh các chuỗi có biên độ khác nhau giữa các tỉnh.
+$$threshold_{95} = P_{95}(y_{true})$$
 
-#### d) Chỉ số outbreak detection
+Một quan sát được phân loại là "bùng phát" nếu giá trị $\geq threshold_{95}$.
 
-Ngoài bài toán hồi quy, đồ án còn đánh giá khả năng nhận diện các tháng bùng phát dịch bằng cách:
+- **Precision (Độ chính xác):** Trong số các trường hợp mô hình dự đoán là bùng phát, bao nhiêu phần trăm thực sự bùng phát?
 
-- Xác định ngưỡng outbreak là percentile thứ 95 của giá trị thực trên horizon 1.
-- Chuyển đầu ra thành nhãn nhị phân: outbreak hoặc non-outbreak.
-- Tính:
-  - `precision`
-  - `recall`
+$$Precision = \frac{TP}{TP + FP}$$
 
-Thiết kế này giúp gắn kết bài toán dự báo với nhu cầu thực tế của hệ thống giám sát dịch, nơi việc nhận biết đỉnh dịch sớm thường có ý nghĩa quan trọng hơn chỉ số sai số trung bình thuần túy.
+- **Recall (Độ phủ):** Trong số các trường hợp thực sự bùng phát, mô hình phát hiện được bao nhiêu?
 
-#### e) MAE theo tỉnh
+$$Recall = \frac{TP}{TP + FN}$$
 
-Sau khi chọn được mô hình tốt nhất theo `MAE@1`, pipeline tiếp tục tính MAE riêng cho từng tỉnh và lưu kết quả vào `province_metrics.csv`. Bảng này hỗ trợ phân tích:
+### 3.3.3 Kiểm định ý nghĩa thống kê
 
-- mô hình hoạt động tốt ở những tỉnh nào,
-- tỉnh nào khó dự báo hơn,
-- liệu hiệu năng có đồng đều trên toàn bộ không gian nghiên cứu hay không.
+Để xác nhận rằng sự cải thiện của mô hình so với Seasonal Naive (baseline mùa vụ) không phải do ngẫu nhiên, hệ thống áp dụng **kiểm định Wilcoxon signed-rank test** (phiên bản phi tham số của paired t-test):
 
-### 3.3.3 Baselines và benchmarks
+- **Giả thuyết $H_0$:** Phân bố sai số tuyệt đối (absolute errors) của mô hình và Seasonal Naive là như nhau.
+- **Giả thuyết $H_1$:** Phân bố sai số tuyệt đối của hai phương pháp khác nhau có ý nghĩa thống kê.
+- **Mức ý nghĩa:** $\alpha = 0.05$.
 
-Để bảo đảm bài toán có ý nghĩa khoa học, đồ án so sánh mô hình đề xuất với ba mức baseline:
+Kiểm định Wilcoxon phù hợp cho dữ liệu chuỗi thời gian vì **không yêu cầu giả định phân bố chuẩn** (normality assumption) — điều thường không thỏa mãn trong dữ liệu dịch bệnh có đuôi dài.
 
-#### a) Naive baseline
+### 3.3.4 Đánh giá theo từng tỉnh (Per-Province Evaluation)
 
-Mô hình Naive dự báo giá trị tương lai bằng giá trị gần nhất trong quá khứ:
+Ngoài đánh giá tổng thể, hệ thống tính **MAE riêng cho từng tỉnh** (sử dụng mô hình có MAE@1 thấp nhất toàn cục), cho phép xác định:
+- Các tỉnh mà mô hình hoạt động tốt nhất / kém nhất.
+- Mối liên hệ giữa hiệu năng và các yếu tố cụ thể (kích thước dữ liệu, mức độ biến động dịch bệnh, vùng địa lý).
 
-- dự báo tại `t+h` được gán bằng giá trị tại `t+h-h = t`
+### 3.3.5 Baselines và Benchmarks so sánh
 
-Đây là baseline tối thiểu để kiểm tra xem mô hình học máy có thực sự học được cấu trúc hay không.
+Đồ án sử dụng hệ thống baselines đa tầng để đo lường mức cải thiện thực sự:
 
-#### b) Seasonal Naive baseline
+| Baseline | Phương pháp dự báo | Ý nghĩa |
+|:---|:---|:---|
+| **Naive** | $\hat{y}_{t+h} = y_t$ | Giá trị hiện tại dùng làm dự báo; đo hiệu quả tối thiểu |
+| **Seasonal Naive** | $\hat{y}_{t+h} = y_{t-12+h-1}$ | Giá trị cùng tháng năm trước; đo tính mùa vụ |
+| **Prophet** | Chuỗi thời gian cổ điển (phân tách xu hướng + mùa vụ) | Đại diện phương pháp truyền thống phổ biến |
 
-Mô hình Seasonal Naive dự báo theo cùng tháng của năm trước:
+Các mô hình ML/DL (XGBoost, HistGB, LSTM) phải vượt trội có ý nghĩa so với các baseline trên thì mới được coi là có đóng góp khoa học.
 
-- dự báo `t+h` bằng quan sát tại `t-12+h-1`
-
-Baseline này phù hợp với các chuỗi có tính mùa vụ mạnh và thường là một đối thủ đáng gờm hơn Naive trong các bài toán dịch tễ theo tháng.
-
-#### c) Prophet
-
-Prophet được sử dụng như một baseline chuỗi thời gian theo tỉnh. Mỗi tỉnh được fit một mô hình riêng với:
-
-- `yearly_seasonality = True`
-- `weekly_seasonality = False`
-- `daily_seasonality = False`
-
-Nếu một tỉnh có dưới 24 quan sát train, pipeline rút về dự báo hằng bằng giá trị cuối cùng để tránh fit một mô hình chuỗi thời gian không đủ dữ liệu.
-
-### 3.3.4 Kiểm định ý nghĩa thống kê
-
-Sau khi thu được sai số tuyệt đối của từng mô hình trên horizon 1, hệ thống thực hiện kiểm định Wilcoxon signed-rank giữa sai số của từng mô hình và sai số của Seasonal Naive. Seasonal Naive được chọn làm đối chứng vì đây là baseline phản ánh trực tiếp tính mùa vụ của chuỗi, do đó khắt khe hơn Naive thông thường.
-
-Việc bổ sung kiểm định ý nghĩa thống kê giúp kết luận "mô hình tốt hơn baseline" không chỉ dựa trên chênh lệch số học trung bình, mà còn được hỗ trợ bởi một phép kiểm định phi tham số phù hợp với sai số không nhất thiết phân phối chuẩn.
-
-### 3.3.5 Kịch bản đánh giá
-
-Do pipeline hỗ trợ nhiều cấu hình, đồ án có thể được đánh giá theo nhiều kịch bản, ví dụ:
-
-- Thay đổi bệnh đích:
-  - `Dengue_fever_rates`
-  - `Influenza_rates`
-  - `Diarrhoea_rates`
-- Bật hoặc tắt chuẩn hóa tự tính theo 100.000 dân:
-  - `compute_rate_per100k = true/false`
-- Bật hoặc tắt thông tin liên bệnh:
-  - `include_other_diseases_as_features = true/false`
-
-Trong phiên bản thực nghiệm chính của đồ án, hai kịch bản thường được ưu tiên là:
-
-- Kịch bản cơ sở: chỉ dùng bệnh đích và biến khí hậu/xã hội.
-- Kịch bản liên bệnh: bổ sung lag của các bệnh còn lại để kiểm tra giá trị dự báo liên bệnh.
-
-Thiết kế kịch bản như vậy cho phép so sánh không chỉ giữa các mô hình, mà còn giữa các cách biểu diễn đầu vào.
+---
 
 ## 3.4 System Design / Model Design
 
-### 3.4.1 Cơ sở lựa chọn mô hình
+### 3.4.1 Tổng quan kiến trúc mô hình
 
-Đồ án không giả định trước rằng deep learning sẽ luôn vượt trội. Thay vào đó, nhóm lựa chọn ba họ mô hình khác nhau để phản ánh ba hướng tiếp cận phổ biến trong dự báo dịch tễ:
+Hệ thống mô hình dự báo được thiết kế theo **kiến trúc MIMO đa mô hình (Multi-Model MIMO Architecture)**: mỗi mô hình nhận cùng một bộ đặc trưng đầu vào và xuất ra đồng thời vector dự báo cho $H$ chân trời thời gian ($H = 6$ trong cấu hình mặc định). Kiến trúc này cho phép so sánh công bằng giữa các loại mô hình trên cùng dữ liệu.
 
-- Chuỗi thời gian đơn biến hoặc bán cấu trúc:
-  - Naive
-  - Seasonal Naive
-  - Prophet
-- Học có giám sát trên dữ liệu tabular:
-  - XGBoost
-  - HistGradientBoosting
-- Học sâu trên chuỗi nhiều biến:
-  - LSTM
+Sáu mô hình được triển khai, thuộc bốn nhóm phương pháp:
 
-Lý do của cách chọn này là để trả lời một câu hỏi nghiên cứu có ý nghĩa: với dữ liệu theo tỉnh, độ dài vừa phải, đặc trưng khí hậu và bệnh có độ trễ, thì mô hình nào là phù hợp nhất?
+### 3.4.2 Mô hình Baseline
 
-### 3.4.2 Thiết kế baseline
+#### a) Naive Forecast
 
-Hai baseline Naive và Seasonal Naive được triển khai theo cách rất rõ ràng, không có giai đoạn huấn luyện:
+Mô hình đơn giản nhất: dự báo cho tất cả các chân trời bằng giá trị hiện tại.
 
-- `naive_predict()` sử dụng `groupby(province).shift(horizon)`.
-- `seasonal_naive_predict()` sử dụng `groupby(province).shift(12 + horizon - 1)`.
+$$\hat{y}_{t+h} = y_t, \quad \forall h \in \{1, ..., H\}$$
 
-Điểm mạnh của hai baseline này là:
+Phương pháp dự báo này giả định "không có sự thay đổi" (random walk), là **lower-bound benchmark** cho mọi mô hình phức tạp hơn.
 
-- cực kỳ dễ diễn giải,
-- đặt ra mức chuẩn tối thiểu cho bài toán,
-- giúp đánh giá xem mô hình phức tạp có thực sự cần thiết hay không.
+#### b) Seasonal Naive Forecast
 
-### 3.4.3 Thiết kế mô hình Prophet
+Dự báo bằng giá trị quan sát được ở **cùng tháng trong năm trước**, mô hình hóa tính mùa vụ cơ bản:
 
-Prophet được triển khai theo từng tỉnh. Điều này có nghĩa là pipeline không học một mô hình Prophet dùng chung cho toàn bộ tỉnh, mà fit từng chuỗi riêng lẻ để giữ đúng giả định của mô hình chuỗi thời gian cổ điển.
+$$\hat{y}_{t+h} = y_{t - 12 + h - 1}$$
 
-Quy trình của Prophet gồm:
+Một mô hình ML chỉ được coi là hữu ích nếu vượt qua Seasonal Naive, vì baseline này đã tận dụng tính chất mùa vụ rõ rệt của dịch bệnh truyền nhiễm.
 
-- lấy dữ liệu `date` và biến mục tiêu của một tỉnh,
-- đổi tên thành cặp cột `ds`, `y`,
-- fit mô hình Prophet có seasonality năm,
-- dự báo trực tiếp trên mốc thời gian test của tỉnh đó.
+### 3.4.3 Mô hình chuỗi thời gian cổ điển: Facebook Prophet
 
-Đây là mốc so sánh quan trọng để đối chiếu với các mô hình có khả năng học đặc trưng chéo tỉnh.
+Prophet (Taylor & Letham, 2018) là mô hình chuỗi thời gian được phân tách thành ba thành phần:
 
-### 3.4.4 Thiết kế mô hình tabular
+$$y(t) = g(t) + s(t) + \epsilon_t$$
 
-#### a) XGBoost
+trong đó:
+- $g(t)$: thành phần xu hướng (trend), mô hình hóa sự thay đổi dài hạn
+- $s(t)$: thành phần mùa vụ hàng năm (yearly seasonality)
+- $\epsilon_t$: phần dư (noise)
 
-XGBoost được chọn vì:
+**Triển khai:** Trong đồ án này, Prophet được huấn luyện **riêng cho từng tỉnh** (per-province fitting) với cấu hình: `yearly_seasonality=True`, `weekly_seasonality=False`, `daily_seasonality=False`. Với tỉnh có ít hơn 24 quan sát huấn luyện, hệ thống sử dụng fallback là giá trị cuối cùng của tập train.
 
-- phù hợp với dữ liệu tabular có feature engineering thủ công,
-- học tốt quan hệ phi tuyến,
-- tương đối bền trước các thang đo khác nhau sau khi chuẩn hóa,
-- thường là baseline mạnh trong các nghiên cứu dự báo dữ liệu cấu trúc.
+**Hạn chế thiết kế:** Prophet chỉ dự báo cho horizon t+1; các chân trời xa hơn được nhân bản từ kết quả t+1;. Điều này là hạn chế có chủ đích — Prophet được sử dụng như baseline chuỗi thời gian cổ điển để so sánh, không phải mô hình chính.
 
-Mỗi horizon được huấn luyện bằng một mô hình riêng. Điều này có nghĩa là bài toán đa bước không được giải bằng một mô hình đầu ra vector duy nhất cho XGBoost, mà bằng ba mô hình hồi quy độc lập:
+### 3.4.4 Mô hình học máy dạng bảng (Tabular Machine Learning)
 
-- mô hình cho `t+1`
-- mô hình cho `t+2`
-- mô hình cho `t+3`
+#### a) XGBoost (eXtreme Gradient Boosting)
 
-Thiết kế này giúp mỗi mô hình tối ưu riêng cho từng tầm dự báo và đơn giản hóa việc diễn giải.
+XGBoost (Chen & Guestrin, 2016) là thuật toán gradient boosting trên cây quyết định, tối ưu hóa hàm mục tiêu:
 
-#### b) HistGradientBoosting
+$$\mathcal{L} = \sum_{i=1}^{n} l(y_i, \hat{y}_i) + \sum_{k=1}^{K} \Omega(f_k)$$
 
-HistGradientBoosting đóng vai trò đối chứng tabular thứ hai, với ưu điểm:
+trong đó $l$ là hàm mất mát (MSE cho bài toán hồi quy) và $\Omega$ là hạng tử chính quy (regularization) kiểm soát độ phức tạp cây.
 
-- huấn luyện nhanh,
-- hoạt động tốt trên bộ dữ liệu tabular cỡ vừa,
-- ít yêu cầu tinh chỉnh hơn boosting cổ điển trong nhiều trường hợp.
+**Triển khai MIMO:** Sử dụng `MultiOutputRegressor` wrapper từ scikit-learn — bọc một bộ hồi quy XGBoost đơn đầu ra thành mô hình đa đầu ra. Mỗi chân trời $h$ có một cây riêng, nhưng chia sẻ cùng bộ đặc trưng đầu vào. Hàm mất mát: `reg:squarederror`.
 
-Tương tự XGBoost, mỗi horizon được huấn luyện độc lập.
+**Siêu tham số và Grid Search:** Tối ưu hóa trên tập Validation với lưới tham số:
 
-#### c) Cơ chế tối ưu siêu tham số nhanh trên validation
+| Tham số | Giá trị thử |
+|:---|:---|
+| `max_depth` | {4, 6, 8} |
+| `learning_rate` | {0.05, 0.1} |
+| `subsample` | {0.7, 0.8} |
+| `colsample_bytree` | {0.7, 0.8} |
+| `n_estimators` | 300 (cố định) |
+| `random_state` | 42 |
 
-Trong `run_all.py`, đồ án triển khai một bước tuning nhẹ trên validation set cho XGBoost và HistGradientBoosting. Cụ thể:
+Sau khi xác định bộ tham số tốt nhất (theo MAE@1 trên tập Val), mô hình được **huấn luyện lại trên Train + Val** trước khi đánh giá trên Test.
 
-- XGBoost được so sánh trên một lưới tham số nhỏ gồm các tổ hợp của:
-  - `max_depth`
-  - `learning_rate`
-  - `subsample`
-  - `colsample_bytree`
-- HistGradientBoosting được so sánh trên lưới:
-  - `max_iter`
-  - `learning_rate`
-  - `max_depth`
+#### b) HistGradientBoosting (HGB)
 
-Tiêu chí chọn mô hình tốt nhất là `MAE@1` trên validation set. Sau khi chọn được cấu hình tốt nhất, mô hình sẽ được huấn luyện lại trên tập gộp `train + validation` trước khi đánh giá trên test set.
+HistGradientBoosting (Ke et al., 2017) là biến thể gradient boosting sử dụng **kỹ thuật histogram-binning** để tăng tốc quá trình phân chia nút (node splitting). So với XGBoost classique, HGB:
+- Nhanh hơn trên tập dữ liệu lớn nhờ rời rạc hóa đặc trưng.
+- Xử lý giá trị thiếu natively (không cần imputation).
 
-Thiết kế này cân bằng giữa:
+**Triển khai:** Tương tự XGBoost, sử dụng `MultiOutputRegressor(HistGradientBoostingRegressor(...))`.
 
-- yêu cầu nghiên cứu cần có bước tuning,
-- và yêu cầu thực tế của đồ án là giữ pipeline gọn, tái lập được, và không quá nặng.
+**Grid Search:**
 
-### 3.4.5 Thiết kế mô hình LSTM
+| Tham số | Giá trị thử |
+|:---|:---|
+| `max_iter` | {250, 300, 350} |
+| `learning_rate` | {0.03, 0.05} |
+| `max_depth` | {6, 8} |
+| `random_state` | 42 |
 
-Mô hình LSTM được xây dựng trong `src/models/lstm_model.py` với kiến trúc:
+### 3.4.5 Mô hình học sâu: LSTM (Long Short-Term Memory)
 
-- đầu vào: chuỗi nhiều bước gồm các vector đặc trưng đã chuẩn hóa,
-- phần thân: `nn.LSTM`
-  - `hidden_size = 128` (mặc định hiện tại ở mã nguồn của mô hình)
-  - `num_layers = 2`
-  - `dropout = 0.2` nếu số tầng lớn hơn 1
-- đầu ra:
-  - một lớp tuyến tính `Linear(hidden_size, out_dim)`
-  - `out_dim = 3`, tương ứng với ba horizon dự báo.
+#### a) Kiến trúc mạng
 
-LSTM được chọn nhằm đại diện cho nhóm mô hình học sâu chuỗi nhiều biến, nơi mô hình có khả năng tự học cấu trúc thời gian và tương tác phi tuyến giữa các biến thay vì phụ thuộc hoàn toàn vào feature engineering thủ công.
+LSTM (Hochreiter & Schmidhuber, 1997) là kiến trúc mạng hồi quy (RNN) được thiết kế để xử lý các phụ thuộc dài hạn trong chuỗi thời gian, giải quyết vấn đề vanishing gradient thông qua cơ chế cổng (gating mechanism).
 
-Trong quá trình thực nghiệm, dữ liệu đầu vào cho LSTM được tạo bằng cửa sổ trượt (`sliding window`) với:
+Kiến trúc LSTM trong đồ án:
 
-- `seq_len = 24` trong cấu hình tối ưu hóa gần nhất
+```
+Input (batch_size, seq_len, n_features)
+    │
+    ▼
+┌─────────────────────────────┐
+│  LSTM Layer 1               │
+│  hidden_size = 64 (128)     │
+│  dropout = 0.2              │
+├─────────────────────────────┤
+│  LSTM Layer 2               │
+│  hidden_size = 64 (128)     │
+├─────────────────────────────┤
+│  Lấy output tại bước        │
+│  thời gian cuối cùng        │
+│  out[:, -1, :]              │
+├─────────────────────────────┤
+│  Linear Head                │
+│  → out_dim = H (6)          │
+└─────────────────────────────┘
+Output (batch_size, H)
+```
 
-Nói cách khác, mỗi mẫu đầu vào cho LSTM bao gồm 24 bước thời gian liên tiếp trong không gian đặc trưng; nhãn tương ứng là bộ giá trị `t+1`, `t+2`, `t+3` tại thời điểm cuối của cửa sổ.
+Mô hình bao gồm:
+- **2 lớp LSTM xếp chồng** (stacked LSTM layers) với `hidden_size = 64` (hoặc 128), `dropout = 0.2` giữa các lớp.
+- **Lớp Linear cuối cùng** ánh xạ trạng thái ẩn tại bước thời gian cuối cùng thành vector dự báo $H$ chiều.
+- **Kích thước chuỗi đầu vào (sequence length):** 24 tháng (mặc định), tạo ra chuỗi 3D: `(batch, 24, n_features)`.
 
-Lưu ý phương pháp luận:
-- Phiên bản mã hiện tại tạo chuỗi bằng cách áp cửa sổ trượt trên ma trận đặc trưng đã được sắp xếp theo `province`, `date`. Trong bản thảo cuối, nhóm nên kiểm tra lại và mô tả rõ rằng cửa sổ LSTM được ràng buộc trong từng tỉnh, hoặc chỉnh mã nếu cần, để tránh khả năng một cửa sổ vô tình cắt qua ranh giới hai tỉnh liên tiếp trong bảng dữ liệu đã gộp.
+#### b) Xây dựng chuỗi đầu vào cho LSTM
 
-### 3.4.6 Thiết kế giải thích mô hình
+Do LSTM yêu cầu đầu vào dạng chuỗi 3D, một hàm `build_sequences()` được thiết kế để chuyển đổi từ bảng phẳng (2D matrix) sang tensor chuỗi:
 
-Để tăng tính diễn giải khoa học, đồ án tích hợp SHAP cho mô hình XGBoost tại horizon 1. Đây là mô hình tabular mạnh và phù hợp với phân tích importance.
+Với ma trận đặc trưng $X \in \mathbb{R}^{N \times F}$ và mục tiêu $Y \in \mathbb{R}^{N \times H}$:
+- Tại mỗi vị trí $i$, trích xuất cửa sổ trượt: $X_s[i] = X[i:i+L]$ với $L$ = sequence length.
+- Mục tiêu tương ứng: $Y_s[i] = Y[i+L-1]$ (giá trị mục tiêu tại cuối chuỗi).
+- Kết quả: $X_s \in \mathbb{R}^{(N-L+1) \times L \times F}$, $Y_s \in \mathbb{R}^{(N-L+1) \times H}$.
 
-Quy trình giải thích gồm:
+### 3.4.6 Pipeline phân tích tương quan phi tuyến
 
-- Tạo `shap.Explainer(model, x_background)`
-- Tính SHAP value trên test set
-- Lưu:
-  - `shap_summary.png`
-  - `top_features.csv`
-- Tiếp tục tính SHAP theo từng tỉnh bằng cách lấy trung bình trị tuyệt đối của SHAP value trong từng tỉnh và lưu `shap_by_province.csv`
-- Từ hai bảng này, một script đơn giản sinh ra `insights.txt` với ba nhóm nhận xét:
-  - đặc trưng quan trọng toàn cục
-  - dấu hiệu của hiệu ứng trễ
-  - dị biệt theo vùng/tỉnh
+#### a) Động lực và mục tiêu
 
-Điểm quan trọng ở đây là đồ án không dừng lại ở câu hỏi "mô hình nào tốt nhất", mà còn mở rộng sang "vì sao mô hình học được như vậy" và "yếu tố nào đóng góp mạnh nhất vào dự báo".
+Phân tích tương quan tuyến tính truyền thống (Pearson) không đủ để nắm bắt toàn bộ mối quan hệ phức tạp giữa các yếu tố khí hậu và dịch bệnh — vốn thường mang **tính phi tuyến, có trễ (lagged), và khác biệt giữa các vùng (heterogeneous)**. Module phân tích phi tuyến được thiết kế để:
+
+- Đo lường sức mạnh phụ thuộc phi tuyến thực sự (không giả định dạng hàm).
+- Xác định **độ trễ tối ưu (optimal lag)** cho từng cặp biến.
+- Phát hiện sự khác biệt vùng miền (province-level heterogeneity).
+- Biện luận cho việc sử dụng mô hình phi tuyến (gradient boosting, neural network) thay vì mô hình tuyến tính.
+
+#### b) Các phép đo phi tuyến
+
+Năm phép đo tương quan/phụ thuộc được tính toán cho mỗi cặp (predictor, target, lag):
+
+**1. Pearson Correlation ($r$):**
+$$r = \frac{\sum(x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum(x_i - \bar{x})^2 \sum(y_i - \bar{y})^2}}$$
+Đo mối quan hệ **tuyến tính** giữa hai biến. Giá trị: $r \in [-1, 1]$.
+
+**2. Spearman Rank Correlation ($\rho_s$):**
+$$\rho_s = r(\text{rank}(x), \text{rank}(y))$$
+Tương quan Pearson trên thứ hạng (ranks), đo mối quan hệ **đơn điệu (monotonic)** — không cần tuyến tính. Robust hơn với outlier.
+
+**3. Kendall Tau ($\tau$):**
+$$\tau = \frac{n_c - n_d}{\frac{1}{2}n(n-1)}$$
+với $n_c$ = số cặp concordant, $n_d$ = số cặp discordant. Đo mức độ **tương đồng thứ tự** giữa hai biến.
+
+**4. Distance Correlation ($dCor$):**
+
+Distance Correlation (Székely et al., 2007) là phép đo phi tuyến **không giả định dạng hàm**, dựa trên khoảng cách Euclid giữa các quan sát:
+
+$$dCor(X, Y) = \frac{dCov(X, Y)}{\sqrt{dVar(X) \cdot dVar(Y)}}$$
+
+trong đó $dCov$ là distance covariance, được tính từ ma trận khoảng cách Euclid đã **doubly centered**:
+- $A_{ij} = |x_i - x_j|$ (ma trận khoảng cách)
+- $\tilde{A}_{ij} = A_{ij} - \bar{A}_{i\cdot} - \bar{A}_{\cdot j} + \bar{A}_{\cdot\cdot}$ (doubly centered)
+- $dCov^2 = \frac{1}{n^2}\sum_{i,j}\tilde{A}_{ij}\tilde{B}_{ij}$
+
+Tính chất quan trọng: **$dCor = 0 \Leftrightarrow X \perp Y$** (độc lập hoàn toàn), không giống Pearson ($r = 0$ không đảm bảo độc lập). Giá trị: $dCor \in [0, 1]$. **dCor là đối xứng**: $dCor(X, Y) = dCor(Y, X)$. Trong kết quả phân tích, các giá trị dCor giữa cùng cặp biến có thể khác nhạu rất nhỏ (~1-2%) do **random sampling** (giới hạn `max_samples_for_distance=1500` từ ~14.000 bản ghi) — đây là variance của phương pháp lấy mẫu, không phải do metric không đối xứng.
+
+**5. Mutual Information (MI):**
+
+Mutual Information (Kraskov et al., 2004) đo **lượng thông tin chung** giữa hai biến, dựa trên lý thuyết thông tin Shannon:
+
+$$I(X; Y) = H(X) + H(Y) - H(X, Y)$$
+
+MI bằng 0 khi và chỉ khi X, Y độc lập; MI lớn hơn chỉ ra mức chia sẻ thông tin cao hơn. Trong triển khai, MI được ước lượng bằng phương pháp **k-nearest neighbor** thông qua hàm `mutual_info_regression()` của scikit-learn, với `random_state = 42` để đảm bảo tái lập.
+
+#### c) Kiểm soát yếu tố nhiễu (Confound Control)
+
+Trước khi tính các phép đo phi tuyến, hệ thống cho phép loại bỏ **ảnh hưởng nhiễu (confounding effects)** từ yếu tố mùa vụ và/hoặc yếu tố vùng miền. Module `_apply_control_mode()` hỗ trợ bốn chế độ:
+
+| Chế độ | Xử lý |
+|:---|:---|
+| `none` | Không loại bỏ nhiễu (dữ liệu thô) |
+| `month` | Trừ trung bình theo tháng: $x \leftarrow x - \bar{x}_{month}$ |
+| `province` | Trừ trung bình theo tỉnh: $x \leftarrow x - \bar{x}_{province}$ |
+| `month_province` | Trừ cả hai: loại bỏ hiệu ứng mùa vụ + vùng miền |
+
+Cấu hình mặc định: `control_mode: month_province` — đảm bảo rằng các mối quan hệ phi tuyến phát hiện được là **thực sự do biến động nội tại** chứ không phải do cả hai biến đều tăng vào mùa mưa hoặc đều cao ở vùng nóng ẩm.
+
+#### d) Quy trình phân tích toàn cục (Global Analysis)
+
+Hàm `analyze_global_dependencies()` thực hiện vòng lặp toàn diện:
+
+```
+For each target ∈ {disease_vars}:
+    For each predictor ∈ {climate_vars ∪ social_vars ∪ other_diseases}:
+        For each lag ∈ {0, 1, 2, 3, 4, 5, 6}:
+            1. Shift predictor by lag months (per province)
+            2. Drop NaN pairs
+            3. Quality checks: min_samples ≥ 300, min_provinces ≥ 12,
+               min_unique ≥ 4, min_std > 0, max_missing_ratio ≤ 40%
+            4. Apply confound control
+            5. Compute all 5 metrics (Pearson, Spearman, Kendall, dCor, MI)
+            6. (Optional) Permutation p-value for Spearman
+```
+
+Kết quả: bảng `global_lag_metrics.csv` chứa tất cả cặp (target, predictor, lag) cùng 5 chỉ số tương ứng.
+
+#### e) Xếp hạng tổng hợp (Composite Score Ranking)
+
+Các mối quan hệ được xếp hạng bằng **điểm tổng hợp có trọng số (weighted composite score)** kết hợp ba chỉ số phi tuyến quan trọng nhất:
+
+$$S_{composite} = w_1 \cdot \widetilde{|\rho_s|} + w_2 \cdot \widetilde{dCor} + w_3 \cdot \widetilde{MI}$$
+
+Trong đó:
+- Ký hiệu $\widetilde{\cdot}$ biểu thị min-max normalization (đưa về $[0, 1]$).
+- Trọng số mặc định: $w_1 = 0.35$ (|Spearman|), $w_2 = 0.40$ (Distance Correlation), $w_3 = 0.25$ (Mutual Information).
+- Distance Correlation được gán trọng số cao nhất do tính chất toán học mạnh ($dCor = 0 \Leftrightarrow$ độc lập).
+
+Top 30 mối quan hệ (theo `top_k_relationships`) được giữ lại cho phân tích sâu hơn.
+
+#### f) Phân tích dị biệt cấp tỉnh (Province-Level Heterogeneity)
+
+Đối với top 30 mối quan hệ, hệ thống tính lại các chỉ số phi tuyến **riêng cho từng tỉnh** (ít nhất 24 quan sát/tỉnh). Phân tích này cho phép:
+- Xác định mối quan hệ nào **đồng nhất trên toàn quốc** vs. chỉ mạnh ở một số vùng.
+- Phát hiện các tỉnh có hành vi bất thường (outlier provinces).
+- Đo lường sự phân tán qua **std(distance_corr) giữa các tỉnh**.
+
+<!-- TODO: Chèn hình province_variability.png minh họa boxplot phân tán dCor giữa các tỉnh -->
+
+---
 
 ## 3.5 Training & Implementation Details
 
 ### 3.5.1 Quy trình huấn luyện tổng thể
 
-Quy trình huấn luyện và thực thi được điều phối tập trung tại `run_all.py`. Trình tự triển khai như sau:
+Quy trình huấn luyện được thiết kế theo triết lý **"tuning trên Validation, đánh giá trên Test, huấn luyện lại trên Train+Val"**:
 
-1. Đọc cấu hình từ `configs/default.yaml`.
-2. Tạo các thư mục đầu ra cần thiết.
-3. Nạp dữ liệu của toàn bộ tỉnh và thực hiện EDA.
-4. Tạo đặc trưng trễ, rolling, month encoding.
-5. Tạo nhãn đa horizon.
-6. Chia dữ liệu thành train/validation/test theo thời gian.
-7. Chuẩn hóa đặc trưng bằng `StandardScaler`.
-8. Tạo dự báo từ baseline Naive và Seasonal Naive.
-9. Nếu được bật trong cấu hình, huấn luyện Prophet theo từng tỉnh.
-10. Thực hiện grid search nhẹ trên validation cho XGBoost và HistGradientBoosting.
-11. Huấn luyện lại hai mô hình tabular tốt nhất trên tập train + validation.
-12. Xây dựng chuỗi đầu vào cho LSTM và huấn luyện bằng mini-batch.
-13. Tính toàn bộ metrics, lưu kết quả dự báo, vẽ biểu đồ cho hai mô hình tốt nhất.
-14. Nếu được bật, chạy SHAP và sinh insight tự động.
+```
+Bước 1: Grid Search trên tập Val
+    → Xác định siêu tham số tốt nhất cho XGBoost và HistGB
 
-Thiết kế này bảo đảm toàn bộ pipeline có thể được chạy lại bằng một lệnh duy nhất:
+Bước 2: Huấn luyện lại trên Train + Val
+    → XGBoost, HistGB: fit(X_trainval, Y_trainval) với best params
+    → LSTM: train trên Train, early stop trên Val
 
-```bash
-python run_all.py --config configs/default.yaml
+Bước 3: Đánh giá trên Test
+    → Tính metrics cho tất cả 6 mô hình
+    → Kiểm định thống kê vs Seasonal Naive
+    → Chạy SHAP analysis trên mô hình XGBoost
 ```
 
-### 3.5.2 Chi tiết huấn luyện XGBoost và HistGradientBoosting
+### 3.5.2 Chi tiết huấn luyện từng mô hình
 
-Đối với XGBoost, cấu hình mặc định trong `src/models/tree_models.py` bao gồm:
+#### a) XGBoost & HistGB
 
-- `n_estimators = 300`
-- `max_depth = 6`
-- `learning_rate = 0.05`
-- `subsample = 0.8`
-- `colsample_bytree = 0.8`
-- `objective = reg:squarederror`
-- `random_state = 42`
+- **Grid Search:** Exhaustive grid search trên tập Validation. Tổng cộng 4 cấu hình XGBoost × 3 cấu hình HGB được thử nghiệm.
+- **Tiêu chí chọn:** MAE@1 (chân trời 1 tháng) trên tập Validation.
+- **Huấn luyện final:** Sau khi chọn được bộ tham số tốt nhất, mô hình được huấn luyện lại trên toàn bộ `Train + Val` data rồi mới đánh giá trên Test. Chiến lược này tận dụng tối đa dữ liệu có sẵn cho mô hình cuối cùng.
+- **Wrapper MIMO:** `MultiOutputRegressor` bọc mỗi base estimator thành mô hình đồng thời dự báo $H = 6$ chân trời.
 
-Đối với HistGradientBoosting, cấu hình mặc định gồm:
+#### b) LSTM
 
-- `max_iter = 300`
-- `random_state = 42`
+| Thông số | Giá trị |
+|:---|:---|
+| **Optimizer** | AdamW (weight_decay = 1e-4) |
+| **Learning rate** | 1e-3 |
+| **Loss function** | MSELoss |
+| **Gradient clipping** | max_norm = 1.0 |
+| **Batch size** | 64 |
+| **Epochs** | 30–60 (có early stopping) |
+| **Early stopping patience** | 8 epochs |
+| **Sequence length** | 24 tháng |
+| **Hidden size** | 64 (mặc định) hoặc 128 |
+| **Num layers** | 2 |
+| **Dropout** | 0.2 |
 
-Tuy nhiên, như đã trình bày ở trên, pipeline không cố định hoàn toàn các giá trị này. Trước khi huấn luyện cuối cùng, hệ thống dùng validation set để thử một tập nhỏ các cấu hình và chọn cấu hình có `MAE@1` thấp nhất.
+**Quy trình huấn luyện LSTM:**
+1. Dữ liệu Train và Val được chuyển thành chuỗi 3D bằng sliding window (length = 24).
+2. Mỗi epoch: shuffle mini-batches (size 64) → forward → MSE loss → backward → gradient clip (norm ≤ 1.0) → AdamW step.
+3. Cuối mỗi epoch: đánh giá val loss.
+4. **Early stopping:** Nếu val loss không cải thiện sau 8 epoch liên tục, rollback về trọng số tốt nhất và dừng huấn luyện.
+5. Mô hình được chuyển sang chế độ `eval()` trước khi dự báo trên tập Test.
 
-Sau khi chọn tham số, dữ liệu train và validation được ghép lại:
+### 3.5.3 SHAP Explainability Analysis
 
-- `x_trainval = [x_train; x_val]`
-- `y_trainval = [y_train; y_val]`
+Sau khi huấn luyện, hệ thống sử dụng **SHAP (SHapley Additive exPlanations)** (Lundberg & Lee, 2017) để giải thích đóng góp của từng đặc trưng vào quyết định dự báo của mô hình XGBoost. SHAP dựa trên lý thuyết giá trị Shapley trong lý thuyết trò chơi hợp tác:
 
-Mỗi horizon được huấn luyện thành một mô hình riêng biệt. Đây là một chi tiết thực thi quan trọng, vì nó nghĩa là đồ án đang sử dụng chiến lược multi-output theo kiểu "multiple single-output regressors" cho các mô hình tabular.
+$$\phi_i = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|!(|F|-|S|-1)!}{|F|!} [f(S \cup \{i\}) - f(S)]$$
 
-### 3.5.3 Chi tiết huấn luyện LSTM
+trong đó $\phi_i$ là đóng góp (SHAP value) của đặc trưng $i$, $F$ là tập toàn bộ đặc trưng, $S$ là tập con bất kỳ không chứa $i$.
 
-Quy trình huấn luyện LSTM được hiện thực trong `src/trainer.py` và `run_all.py`. Các lựa chọn tối ưu hóa hiện tại gồm:
+**Hai hình thức phân tích SHAP:**
 
-- thuật toán tối ưu: `AdamW`
-- learning rate mặc định:
-  - `lr = 1e-3`
-- regularization:
-  - `weight_decay = 1e-4`
-- batch size:
-  - `batch_size = 64`
-- số epoch tối đa:
-  - `epochs = 60`
-- early stopping:
-  - theo validation loss
-  - `patience = 8`
-- gradient clipping:
-  - `clip_grad_norm_ = 1.0`
+1. **Global SHAP:** Tính mean(|SHAP values|) cho từng đặc trưng trên toàn bộ tập Test → xếp hạng mức độ quan trọng toàn cục. Sử dụng `TreeExplainer` (tối ưu cho cây quyết định, exact computation).
 
-Huấn luyện được tiến hành theo mini-batch trên tập chuỗi đầu vào. Sau mỗi epoch, mô hình được đánh giá trên validation set. Nếu validation loss không cải thiện trong số epoch cho phép, pipeline sẽ nạp lại trọng số tốt nhất và dừng sớm.
+2. **SHAP by Province:** Tính SHAP riêng cho từng tỉnh (tối thiểu 10 quan sát) → phát hiện sự khác biệt vùng miền trong tầm quan trọng đặc trưng. Ví dụ: lượng mưa có thể rất quan trọng ở Đồng bằng sông Cửu Long nhưng ít quan trọng ở vùng cao nguyên.
 
-Thiết kế này được lựa chọn vì:
+**Module Insight Extraction:** Từ kết quả SHAP, module `insight_extractor.py` tự động rút trích các nhận định:
+- Top 3 đặc trưng quan trọng nhất toàn cục.
+- Xác định đặc trưng khí hậu nổi bật (rainfall, humidity, temperature).
+- Phát hiện hiệu ứng lag (lag features chiếm ưu thế).
+- Đặc trưng có sự khác biệt vùng miền lớn nhất (std cao nhất trong SHAP by province).
 
-- phù hợp với dữ liệu không quá lớn,
-- giúp giảm overfitting so với huấn luyện full-batch,
-- tạo một phiên bản LSTM đủ mạnh để so sánh công bằng với mô hình tabular, nhưng vẫn giữ độ đơn giản cần thiết cho một đồ án thực nghiệm.
+### 3.5.4 Thiết kế kịch bản thí nghiệm (Experimental Scenarios)
 
-### 3.5.4 Chi tiết lưu trữ kết quả và khả tái lập
+Để trả lời nhiều câu hỏi nghiên cứu khác nhau, hệ thống chạy **6 kịch bản thí nghiệm tự động** (3 bệnh × 2 kiểu chạy) thông qua `run_hybrid.py`:
 
-Pipeline lưu kết quả đầu ra theo cấu trúc chuẩn:
+| Kịch bản | Target | Câu hỏi nghiên cứu | Cấu hình chính |
+|:---|:---|:---|:---|
+| **S1** | Dengue_fever_rates | Kiến trúc MIMO 12→6 có vượt trội Naive? | `include_other_diseases=false` |
+| **S2** | Dengue_fever_rates | Bệnh khác có giá trị dự báo cho Dengue? | `include_other_diseases=true` |
+| **S3** | Influenza_rates | Pipeline tổng quát hóa sang Cúm mùa? | `include_other_diseases=false` |
+| **S4** | Influenza_rates | Bệnh chéo cải thiện dự báo Cúm? | `include_other_diseases=true` |
+| **S5** | Diarrhoea_rates | Pipeline tổng quát hóa sang Tiêu chảy? | `include_other_diseases=false` |
+| **S6** | Diarrhoea_rates | Bệnh chéo có cứu vãn ML cho Tiêu chảy? | `include_other_diseases=true` |
 
-- `outputs/metrics/`
-  - `model_comparison.csv`
-  - `province_metrics.csv`
-  - `significance_vs_seasonal.csv`
-- `outputs/predictions/`
-  - `pred_<Model>.csv`
-- `outputs/plots/`
-  - biểu đồ EDA và biểu đồ dự báo
-- `outputs/shap/`
-  - các tệp SHAP và insight
+Mỗi kịch bản tự động cập nhật `configs/default.yaml`, chạy toàn bộ pipeline (`run_all.py`), rồi sao chép kết quả vào `results/<scenario_id>/`.
 
-Thiết kế này có ý nghĩa thực tiễn lớn đối với viết báo cáo, vì:
+**Feature selection:** Hệ thống sử dụng **whitelist** nghiêm ngặt — chỉ cho phép features được khai báo trong config (`weather_vars`, `social_vars`, `diseases`) và các đặc trưng dẫn xuất (lags, rolling stats, cyclical encoding). Điều này đảm bảo config là nguồn sự thật duy nhất về đầu vào mô hình.
 
-- mọi bảng kết quả chính đều đã được trích xuất sang CSV,
-- các hình minh họa được lưu thành file độc lập để chèn trực tiếp vào luận văn/bài báo,
-- đầu ra dự báo cho từng mô hình được giữ lại để tái kiểm tra hoặc phân tích lỗi sau này.
+### 3.5.5 EDA (Exploratory Data Analysis)
 
-Ngoài ra, một số chi tiết hỗ trợ tái lập thí nghiệm đã được chuẩn hóa trong mã:
+Module `eda.py` thực hiện phân tích khám phá dữ liệu tự động, tạo ra các đồ thị và bảng số liệu:
 
-- `random_state = 42` cho mô hình tabular
-- cấu hình tập trung trong `configs/default.yaml`
-- một script chạy chính duy nhất là `run_all.py`
+1. **Biểu đồ mùa vụ (Seasonality Month Profile):** Trung bình tỷ lệ mắc bệnh theo tháng trên toàn bộ tỉnh → phát hiện tháng đỉnh dịch.
+2. **Phân bố biến mục tiêu (Target Distribution):** Histplot + KDE → đánh giá tính right-skew, heavy tail.
+3. **Ma trận tương quan trễ khí hậu (Climate-Target Lag Correlation):** Pearson correlation giữa từng biến khí hậu (lag 0–6) với biến mục tiêu → xác định lag tối ưu cho mỗi yếu tố khí hậu.
+4. **Tương quan giữa các bệnh (Disease Correlation):** Ma trận tương quan Pearson giữa các bệnh (cùng tháng) và tương quan chéo với lag 0–6.
 
-### 3.5.5 Công cụ, thư viện và môi trường triển khai
+### 3.5.6 Công cụ và thư viện
 
-Đồ án được hiện thực hoàn toàn bằng Python. Các thư viện chính bao gồm:
+#### Bảng 2: Các thư viện chính sử dụng trong đồ án
 
-- `pandas`, `numpy`:
-  - xử lý dữ liệu dạng bảng và tính toán số học
-- `scikit-learn`:
-  - chuẩn hóa dữ liệu
-  - chỉ số đánh giá
-  - HistGradientBoostingRegressor
-- `xgboost`:
-  - XGBRegressor
-- `prophet`:
-  - baseline chuỗi thời gian theo tỉnh
-- `torch`:
-  - xây dựng và huấn luyện LSTM
-- `scipy`:
-  - kiểm định Wilcoxon
-- `matplotlib`, `seaborn`:
-  - trực quan hóa dữ liệu và kết quả
-- `shap`:
-  - giải thích mô hình
-- `openpyxl`:
-  - đọc dữ liệu Excel
-- `PyYAML`:
-  - nạp cấu hình từ file YAML
+| Thư viện | Phiên bản | Vai trò |
+|:---|:---|:---|
+| **Python** | 3.10+ | Ngôn ngữ lập trình chính |
+| **pandas** | ≥ 2.0 | Xử lý và biến đổi dữ liệu dạng bảng |
+| **NumPy** | ≥ 1.24 | Tính toán ma trận và các phép toán số |
+| **scikit-learn** | ≥ 1.4 | StandardScaler, MultiOutputRegressor, HistGradientBoosting, Mutual Information estimation |
+| **XGBoost** | ≥ 2.0 | Mô hình gradient boosting chính |
+| **PyTorch** | ≥ 2.2 | Xây dựng và huấn luyện mô hình LSTM |
+| **Prophet** | ≥ 1.1 | Mô hình chuỗi thời gian cổ điển (baseline) |
+| **SHAP** | ≥ 0.45 | Giải thích mô hình (Explainability) |
+| **SciPy** | ≥ 1.12 | Wilcoxon test, Pearson/Spearman/Kendall, Distance matrix |
+| **Matplotlib** | ≥ 3.8 | Trực quan hóa đồ thị |
+| **Seaborn** | ≥ 0.13 | Trực quan hóa nâng cao (heatmap, boxplot) |
+| **PyYAML** | ≥ 6.0 | Đọc file cấu hình YAML |
+| **openpyxl** | ≥ 3.1 | Đọc file Excel (.xlsx) |
 
-Về phần cứng, mã nguồn hiện tại không lưu thông tin thiết bị chạy. Trong bản thảo cuối, nhóm nên bổ sung:
+### 3.5.7 Môi trường phần cứng
 
-- [CPU model]
-- [RAM]
-- [Có/không sử dụng GPU cho PyTorch]
-- [Phiên bản Python và hệ điều hành]
+<!-- TODO: Bổ sung thông tin phần cứng thực tế -->
 
-### 3.5.6 Tóm tắt logic phương pháp
+| Thông số | Giá trị |
+|:---|:---|
+| **Hệ điều hành** | Windows 10/11 |
+| **CPU** | <!-- TODO: Bổ sung CPU --> |
+| **RAM** | <!-- TODO: Bổ sung RAM --> |
+| **GPU** | <!-- TODO: Nếu có GPU cho LSTM, ghi rõ. Nếu chỉ chạy CPU, ghi "CPU-only" --> |
+| **Thời gian chạy toàn bộ 5 kịch bản** | <!-- TODO: Bổ sung --> |
 
-Tổng hợp lại, logic phương pháp của đồ án gồm các ý chính:
+---
 
-- xây dựng một pipeline thống nhất cho dữ liệu đa tỉnh, đa biến, đa horizon;
-- so sánh công bằng giữa baseline đơn giản, mô hình chuỗi thời gian cổ điển, mô hình tabular và mô hình học sâu;
-- ưu tiên thiết kế đặc trưng trễ và đánh giá theo thời gian để phản ánh đúng bối cảnh dự báo thực tế;
-- kết hợp đánh giá định lượng với giải thích mô hình và phân tích tương quan để tạo ra giá trị nghiên cứu thay vì chỉ cung cấp độ chính xác dự báo.
+## Danh mục hình ảnh cần chèn
 
-Theo định hướng này, phần Methodology không chỉ mô tả cách hiện thực mô hình, mà còn cho thấy vì sao pipeline được tổ chức như hiện tại: nhằm tối đa hóa tính so sánh, tính minh bạch, và tính tái lập của nghiên cứu.
+Dưới đây là danh sách các hình ảnh cần chèn vào phần Methodology, bao gồm cả hình đã có sẵn từ outputs và hình cần vẽ thêm:
+
+### Hình cần vẽ thêm (bằng draw.io, PowerPoint hoặc Mermaid):
+
+| Hình | Mô tả | Vị trí chèn |
+|:---|:---|:---|
+| **Hình 1** | Sơ đồ pipeline tổng thể (hai nhánh + tích hợp) | Mục 3.1.2 |
+| **Hình 2** | Sơ đồ Data Pipeline chi tiết (6 bước xử lý dữ liệu) | Cuối mục 3.2 |
+| **Hình 3** | Kiến trúc LSTM (mô hình mạng neural) | Mục 3.4.5 |
+
+### Hình có sẵn từ outputs (khi chạy pipeline):
+
+| Hình | File path | Mô tả |
+|:---|:---|:---|
+| **Hình EDA-1** | `outputs/plots/seasonality_month_profile.png` | Biểu đồ mùa vụ tháng |
+| **Hình EDA-2** | `outputs/plots/target_distribution.png` | Phân bố biến mục tiêu |
+| **Hình EDA-3** | `outputs/plots/lag_correlation_heatmap.png` | Tương quan trễ khí hậu–bệnh |
+| **Hình EDA-4** | `outputs/plots/disease_corr_heatmap.png` | Tương quan giữa các bệnh |
+| **Hình EDA-5** | `outputs/plots/disease_crosscorr_heatmap.png` | Tương quan chéo có trễ giữa bệnh |
+| **Hình NL-1** | `non-linear-correlation-analysis/outputs/plots/top_relationships.png` | Top 15 mối quan hệ phi tuyến |
+| **Hình NL-2** | `non-linear-correlation-analysis/outputs/plots/province_variability.png` | Phân tán dCor giữa các tỉnh |
+| **Hình NL-3** | `non-linear-correlation-analysis/outputs/plots/heatmap_*_distance_corr.png` | Heatmap dCor theo target |
+| **Hình NL-4** | `non-linear-correlation-analysis/outputs/plots/heatmap_*_mutual_info.png` | Heatmap MI theo target |
+| **Hình SHAP-1** | `outputs/shap/shap_summary.png` | SHAP summary plot (toàn cục) |
+| **Hình PRED-1** | `outputs/plots/prediction_*.png` | Biểu đồ dự báo vs thực tế (top 2 models) |
+
+---
+
+## Danh mục các mục cần bổ sung (TODO)
+
+- [ ] Nguồn dữ liệu cụ thể (Mục 3.2.1): tên tổ chức cung cấp, link truy cập
+- [ ] Thông tin phần cứng (Mục 3.5.7): CPU, RAM, GPU
+- [ ] Thời gian chạy thực tế cho mỗi kịch bản
+- [ ] Hình 1: Sơ đồ pipeline tổng thể (vẽ từ Mermaid hoặc draw.io)
+- [ ] Hình 2: Sơ đồ Data Pipeline
+- [ ] Hình 3: Kiến trúc mạng LSTM
+- [ ] Chèn các hình EDA, NL, SHAP, PRED từ thư mục outputs khi có kết quả chạy

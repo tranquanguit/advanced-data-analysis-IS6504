@@ -1,3 +1,3 @@
 Top 3 important features globally: ['Diarrhoea_rates_rollmean_3', 'Diarrhoea_rates_lag1', 'Diarrhoea_rates_rollmean_6']
 Lag effects detected from top features: ['Diarrhoea_rates_lag1']
-Strongest regional heterogeneity observed on: Diarrhoea_rates_rollmean_3
+Strongest regional heterogeneity observed on: Diarrhoea_rates_lag1

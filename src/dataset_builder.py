@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.config import PROVINCE_COL
+PROVINCE_COL = "province"
 
 
 def create_multi_horizon_targets(df: pd.DataFrame, target: str, horizons: list[int]) -> pd.DataFrame:
