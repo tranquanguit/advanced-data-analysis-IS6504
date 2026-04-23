@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -107,7 +108,35 @@ def run_pipeline(config_path: str) -> None:
     )
     write_quality_summary(quality_reports, out_dirs["reports"] / "data_quality_summary.md")
 
+    print("[INFO] Exporting suggested cross-disease lags (dCor > 0.4)...")
+    export_suggested_lags(global_df, params, out_dirs["tables"] / "suggested_lags.json")
+
     print(f"[DONE] Analysis completed. Outputs saved to: {output_dir}")
+
+
+def export_suggested_lags(global_df: pd.DataFrame, params, output_path: Path):
+    """Filter lags for other diseases where distance_corr > 0.4."""
+    out_map = {}
+    for target in params.disease_vars:
+        target_map = {}
+        # We only care about cross-disease predictors
+        other_diseases = [d for d in params.disease_vars if d != target]
+        
+        for predictor in other_diseases:
+            # Filter global_df for this pair
+            mask = (global_df["target"] == target) & (global_df["predictor"] == predictor)
+            matches = global_df[mask]
+            
+            # Sub-filter for dCor > 0.4
+            significant = matches[matches["distance_corr"] > 0.4]
+            lags = sorted(significant["lag"].unique().tolist())
+            target_map[predictor] = [int(l) for l in lags]
+            
+        out_map[target] = target_map
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(out_map, f, indent=4)
+    print(f"[INFO] Saved {len(out_map)} targets' suggested lags to {output_path.name}")
 
 
 if __name__ == "__main__":

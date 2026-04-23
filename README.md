@@ -1,98 +1,89 @@
-# Dengue Forecasting Research Pipeline (Multi-Province, Multi-Horizon)
+# Infectious Disease Forecasting Research Pipeline (Automated Hybrid System)
 
-Pipeline này triển khai đầy đủ các phase đã thống nhất:
+A state-of-the-art research pipeline for multi-province, multi-horizon (MIMO) forecasting of **Dengue**, **Influenza**, and **Diarrhoea** in Vietnam. This system implements an advanced **Hybrid Architecture** that uses non-linear analysis to guide adaptive feature engineering, ensuring robust performance and academic rigor.
 
-- **Phase 1**: Data prep + baseline (Naive, Seasonal Naive, Prophet)
-- **Phase 2**: EDA + lag/correlation
-- **Phase 3**: Modeling (XGBoost, HistGB, LSTM)
-- **Phase 4**: Evaluation (MAE/RMSE/SMAPE + outbreak)
-- **Phase 5**: SHAP + insight extraction
+## 🚀 Key Scientific Features
 
-## 1) Cấu trúc thư mục
+- **Automated NL-Guided Selection:** Uses Distance Correlation (dCor) to identify significant lags across diseases, filtering out noise and secondary predictors dynamically.
+- **Multi-Horizon MIMO Architecture:** Predicts 6 months simultaneously ($t+1 \dots t+6$) using specialized multi-output regression models.
+- **Weighted Loss Optimization:** Prioritizes forecast accuracy for immediate horizons ($h=1, 2$) using a custom weighted MSE loss function.
+- **Paired Statistical Testing:** Built-in Wilcoxon Signed-Rank Test to validate improvements between experimental scenarios.
+- **Model Explainability (XAI):** Integrated SHAP analysis for global and provincial feature importance.
+
+---
+
+## 📂 Project Structure
 
 ```text
 .
-├── configs/
-│   └── default.yaml      # chỉnh tham số mà không sửa code
-├── data/
-│   ├── raw/              # đặt các file .xlsx theo tỉnh
-│   └── processed/
-├── outputs/
-│   ├── metrics/
-│   ├── predictions/
-│   ├── plots/
-│   └── shap/
-├── src/
-│   ├── runtime_config.py
-│   ├── config.py
-│   ├── data_loader.py
-│   ├── feature_engineering.py
-│   ├── dataset_builder.py
-│   ├── evaluation.py
-│   ├── eda.py
-│   ├── insight_extractor.py
-│   ├── shap_analysis.py
-│   ├── trainer.py
-│   ├── visualization.py
-│   └── models/
-│       ├── naive.py
-│       ├── prophet_model.py
-│       ├── tree_models.py
-│       └── lstm_model.py
-└── run_all.py
+├── configs/              # Central configuration (YAML)
+├── data/                 # Raw and processed datasets
+├── outputs/              # Analysis artifacts (Plots, Tables, SHAP)
+├── results/              # Final benchmarking metrics for S1-S9
+├── src/                  # Core logic and source code
+│   ├── models/           # HGB, LightGBM, XGBoost, LSTM, Prophet
+│   ├── data_loader.py    # Robust data ingestion and cleaning
+│   ├── feature_engineering.py # Selective lags & rolling stats
+│   ├── nonlinear_analyzer.py  # dCor & MI metric computation
+│   └── trainer.py        # Weighted MIMO optimization logic
+├── run_hybrid.py         # Unified orchestrator (The primary entry point)
+├── run_nonlinear.py      # Independent analysis runner (Step 1)
+└── run_all.py            # Individual scenario runner (Step 2)
 ```
 
-## 2) Cài đặt
+---
 
+## 📊 Experimental Scenarios (S1 - S9)
+
+The project systematically compares three feature selection strategies across three target diseases:
+
+| Group | Scenarios | Target Strategy | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Baseline** | S1, S3, S5 | Climate + Social Only | Define the minimal forecasting capability. |
+| **Brute-force** | S2, S4, S6 | All lags (1-12) of other diseases | Test full cross-disease integration (often noisy). |
+| **NL-Guided** | S7, S8, S9 | Selective lags (dCor > 0.4) | **Innovation:** Optimized selection via MI/dCor. |
+
+---
+
+## 🛠️ Quick Start
+
+### 1. Installation
 ```bash
 pip install -r requirements.txt
 ```
 
-## 3) Chuẩn bị dữ liệu
-
-- Đặt file tỉnh vào `data/raw/` (vd: `squeezed_Hà Nội.xlsx`).
-- Mỗi file cần có tối thiểu các cột:
-  - `year`, `month`, `Dengue_fever_rates`
-  - climate vars và socio vars theo `configs/default.yaml`
-
-> Lưu ý: pipeline sẽ tự tạo các thư mục `data/raw`, `data/processed`, `outputs/*` nếu chưa có.
-
-## 4) Chạy pipeline
-
+### 2. Execution (The Unified Way)
+To run the full research workflow (Analysis + All 9 Scenarios + Statistical Tests):
 ```bash
-python run_all.py --config configs/default.yaml
+python run_hybrid.py
 ```
 
-## 5) Chỉnh tham số không cần sửa code
+### 3. CLI Options
+- **Skip Analysis:** `python run_hybrid.py --skip-nonlinear`
+- **Run specific scenarios:** `python run_hybrid.py --scenarios 7 8 9`
+- **Analysis only:** `python run_hybrid.py --skip-scenarios`
 
-Chỉnh trực tiếp trong `configs/default.yaml`:
-- danh sách biến
-- lag / rolling / horizons
-- train/test split
-- params XGB/HistGB/LSTM
-- bật/tắt Prophet, SHAP
+---
 
-## 6) Output chính
+## 📈 Analysis & Outputs
 
-- `outputs/metrics/model_comparison.csv`: MAE@1/2/3 theo model
-- `outputs/metrics/province_metrics.csv`: MAE theo tỉnh
-- `outputs/plots/*.png`: biểu đồ EDA và prediction
-- `outputs/shap/top_features.csv`: xếp hạng feature
-- `outputs/shap/insights.txt`: insight tự động
+- **Core Metrics:** `results/scenarioX/outputs/metrics/model_comparison.csv`
+- **Statistical Significance:** `results/scenarioX/outputs/metrics/wilcoxon_vs_scenarioY.csv`
+- **Distance Correlation Ranking:** `outputs/nonlinear/tables/global_lag_metrics_ranked.csv`
+- **SHAP Feature Importance:** `results/scenarioX/outputs/shap/top_features.csv`
 
-## 7) Checklist thực thi (assign team)
+---
 
-| Phase | Task | Model/Method | Scope | Key Params | Owner | Deadline (Day) | Expected Numeric Outcome | Expected Insight |
-|---|---|---|---|---|---|---:|---|---|
-| 1 | Chuẩn hóa dữ liệu, index (`province`,`date`) | Data pipeline | 53 tỉnh | monthly, sort asc, ffill+bfill | Data Lead | 1 | 100% file load pass | Không leak thời gian |
-| 1 | Feature lag + rolling | FE | 53 tỉnh | lags=1,2,3; roll=3 mean/std | Data Lead | 2 | feature matrix đầy đủ | Lag hiệu lực 1-3 tháng |
-| 1 | Baseline | Naive / Seasonal Naive / Prophet | Per-province | horizon=1,2,3 | Baseline Eng | 3 | Seasonal Naive > Naive | Seasonality rõ |
-| 2 | EDA mùa vụ, CCF, phân bố | Plots + stats | National + region | month profile, corr by lag | Data Analyst | 5 | xác định lag tốt nhất | Rain/Humidity lag mạnh |
-| 3 | Core model | XGB / HistGB / LSTM | Global pooled | XGB(300,6,0.05), LSTM(hidden=64) | ML + DL | 9 | tốt hơn baseline 5–10% | Global học được pattern chung |
-| 3 | Input impact | LSTM | Global | disease-only / +climate / +socio | DL | 9 | +climate cải thiện 5–10% | Climate có predictive power |
-| 3 | Lag impact | XGB | Global | lag_set=1,3,6 | ML | 9 | lag 2–3 tốt nhất | hiệu ứng trễ bệnh |
-| 4 | Eval + significance | MAE/RMSE/SMAPE, Wilcoxon | All | horizons=1,2,3 | QA/Statistician | 10 | p-value < 0.05 | khác biệt có ý nghĩa |
-| 5 | Explainability | SHAP global + per province | Global + tỉnh | mean(abs(shap)) | Explainability Eng | 11 | top climate lag features | khác biệt vùng |
-| 5 | Report package | CSV + plots + insights | All | autosave output | Tech Lead | 12 | report-ready artifacts | claim contribution rõ ràng |
+## ⚙️ Configuration
 
-> Gợi ý nhân sự 5 người: Data Lead, Baseline Eng, ML Eng, DL Eng, QA/Statistician.
+All system parameters are centralized in `configs/default.yaml`. You can adjust prediction horizons, model hyperparameters, and data paths without modifying the source code.
+
+> [!IMPORTANT]
+> The **NL-Guided scenarios (S7-S9)** are dynamically updated at runtime based on the most recent non-linear analysis results stored in `outputs/nonlinear/tables/suggested_lags.json`.
+
+---
+
+## 📚 Methodology References
+1. **Distance Correlation:** Scikit-learn based non-linear dependency estimation.
+2. **MIMO Strategy:** Multi-Input Multi-Output vector forecasting.
+3. **Statistical Validity:** Paired Wilcoxon Signed-Rank Test for error distributions.

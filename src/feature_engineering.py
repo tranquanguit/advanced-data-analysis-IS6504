@@ -13,17 +13,26 @@ def create_features(
     weather_vars: list[str],
     social_vars: list[str],
     input_sequence_length: int,
-    include_other_diseases: bool = False,
+    cross_disease_map: dict[str, list[int]] | None = None,
 ) -> pd.DataFrame:
     out = df.copy()
 
-    # build base list of columns to lag
-    extra_disease_cols = [d for d in diseases if d != target] if include_other_diseases else []
-    for col in [target, *extra_disease_cols, *weather_vars, *social_vars]:
+    # build base list of columns to lag for target and exogenous vars
+    for col in [target, *weather_vars, *social_vars]:
         if col not in out.columns:
             continue
         for lag in range(1, input_sequence_length + 1):
             out[f"{col}_lag{lag}"] = out.groupby(PROVINCE_COL)[col].shift(lag)
+
+    # Selective cross-disease features
+    if cross_disease_map:
+        for extra_col, lags in cross_disease_map.items():
+            if extra_col not in out.columns or extra_col == target:
+                continue
+            for lag in lags:
+                if lag == 0:
+                    continue  # lag 0 is the raw column itself, we keep it as is
+                out[f"{extra_col}_lag{lag}"] = out.groupby(PROVINCE_COL)[extra_col].shift(lag)
 
     for w in [3, 6]:
         if w <= input_sequence_length:
@@ -37,5 +46,5 @@ def create_features(
     out["month_sin"] = np.sin(2 * np.pi * out["month"] / 12)
     out["month_cos"] = np.cos(2 * np.pi * out["month"] / 12)
 
-    out = out.dropna().reset_index(drop=True)
+
     return out
