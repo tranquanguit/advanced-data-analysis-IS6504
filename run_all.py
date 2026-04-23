@@ -18,6 +18,7 @@ from src.data_loader import load_all_provinces
 from src.models.naive import naive_predict, seasonal_naive_predict
 from src.models.prophet_model import prophet_forecast_per_province
 from src.models.tree_models import train_hgb, train_xgb
+from src.models.lgbm_model import train_lgbm
 from src.models.lstm_model import LSTMModel
 from src.runtime_config import load_runtime_config
 from src.shap_analysis import run_shap_analysis, shap_by_province
@@ -60,7 +61,7 @@ def build_feature_cols(
     weather_vars: list[str],
     social_vars: list[str],
     diseases: list[str] | None = None,
-    include_other_diseases: bool = True,
+    cross_disease_map: dict[str, list[int]] | None = None,
 ) -> list[str]:
     """Build feature column list using a strict WHITELIST approach.
 
@@ -73,9 +74,17 @@ def build_feature_cols(
     """
     # Build the set of allowed base variables
     allowed_bases = {target, *weather_vars, *social_vars}
-    if include_other_diseases and diseases:
-        other_diseases = {d for d in diseases if d != target}
-        allowed_bases |= other_diseases
+
+    allowed_cross = set()
+    if cross_disease_map:
+        for extra_col, lags in cross_disease_map.items():
+            if extra_col == target:
+                continue
+            for lag in lags:
+                if lag == 0:
+                    allowed_cross.add(extra_col)
+                else:
+                    allowed_cross.add(f"{extra_col}_lag{lag}")
 
     # Build full whitelist: raw column OR derived (lag, rolling, etc.)
     allowed = set()
@@ -88,12 +97,12 @@ def build_feature_cols(
             if col == base or col.startswith(f"{base}_lag") or col.startswith(f"{base}_roll"):
                 allowed.add(col)
                 break
+        if col in allowed_cross:
+            allowed.add(col)
 
-    # Exclude non-feature columns, target horizons, and raw case counts
-    exclude = {"year", "month", "date", "province", target} | {f"{target}_t+{h}" for h in horizons}
-    # When cross-disease is disabled, also exclude raw disease columns
-    if not include_other_diseases and diseases:
-        exclude |= {d for d in diseases if d != target}
+    # Exclude non-feature columns, target horizons.
+    # Note: 'target' is explicitly NOT excluded so raw y_t can be used.
+    exclude = {"year", "month", "date", "province"} | {f"{target}_t+{h}" for h in horizons}
 
     return [
         c for c in df.columns
@@ -131,6 +140,26 @@ def run_pipeline(config_path: str):
         cases_col=exp.get("cases_col"),
         compute_rate_per100k=exp.get("compute_rate_per100k", False),
     )
+
+    # --- Selective Data Cleaning ---
+    # 1. Early Column Filtering: Keep only metadata and columns defined in config
+    # This prevents 'garbage' columns (e.g. poverty_rate) from triggering dropna later
+    meta_cols = ["province", "date", "year", "month"]
+    config_vars = [target] + weather_vars + social_vars + diseases
+    
+    # Identify which columns in df_raw are relevant based on the base variable names in config
+    cols_to_keep = []
+    for col in df_raw.columns:
+        if col in meta_cols:
+            cols_to_keep.append(col)
+        else:
+            # Check if column name starts with any of our config variables
+            if any(col == var or col.startswith(f"{var}_") for var in config_vars):
+                cols_to_keep.append(col)
+    
+    df_raw = df_raw[cols_to_keep]
+    # -------------------------------
+
     run_eda(df_raw, target, weather_vars, diseases, dirs["plots"])
 
     df_feat = create_features(
@@ -140,20 +169,27 @@ def run_pipeline(config_path: str):
         weather_vars,
         social_vars,
         input_sequence_length,
-        include_other_diseases=exp.get("include_other_diseases_as_features", False),
+        cross_disease_map=exp.get("cross_disease_map", None),
     )
     df_all = create_multi_horizon_targets(df_feat, target, horizons)
-    df_all.to_csv(dirs["processed"] / "dataset_modeling.csv", index=False)
-
-    train, val, test = split_train_val_test(df_all, train_end, val_end, test_start, test_end)
+    
     feature_cols = build_feature_cols(
         df_all, target, horizons,
         weather_vars=weather_vars,
         social_vars=social_vars,
         diseases=diseases,
-        include_other_diseases=exp.get("include_other_diseases_as_features", False),
+        cross_disease_map=exp.get("cross_disease_map", None),
     )
     print(f"[INFO] Features selected: {len(feature_cols)} (whitelist from config)")
+
+    # 2. Selective Late Dropna: Drop only if essential features or targets are missing
+    target_cols = [f"{target}_t+{h}" for h in horizons]
+    df_all = df_all.dropna(subset=feature_cols + target_cols).reset_index(drop=True)
+    print(f"[INFO] Final modeling dataset: {len(df_all)} samples from {df_all['province'].nunique()} provinces")
+
+    df_all.to_csv(dirs["processed"] / "dataset_modeling.csv", index=False)
+
+    train, val, test = split_train_val_test(df_all, train_end, val_end, test_start, test_end)
 
     scaler = StandardScaler()
     x_train_df = pd.DataFrame(scaler.fit_transform(train[feature_cols]), columns=feature_cols, index=train.index)
@@ -193,6 +229,11 @@ def run_pipeline(config_path: str):
         {"max_iter": 300, "learning_rate": 0.05, "max_depth": 8},
         {"max_iter": 350, "learning_rate": 0.03, "max_depth": 8},
     ]
+    lgbm_grid = [
+        {"max_depth": 4, "learning_rate": 0.05, "subsample": 0.8, "colsample_bytree": 0.8},
+        {"max_depth": 6, "learning_rate": 0.05, "subsample": 0.8, "colsample_bytree": 0.8},
+        {"max_depth": 6, "learning_rate": 0.1, "subsample": 0.8, "colsample_bytree": 0.8},
+    ]
 
     def eval_grid(grid, trainer_fn, name):
         best = None
@@ -208,6 +249,7 @@ def run_pipeline(config_path: str):
 
     best_xgb_params = eval_grid(xgb_grid, train_xgb, "XGB")
     best_hgb_params = eval_grid(hgb_grid, train_hgb, "HGB")
+    best_lgbm_params = eval_grid(lgbm_grid, train_lgbm, "LightGBM")
 
     # retrain on train+val with best params
     x_trainval = np.vstack([x_train, x_val])
@@ -215,9 +257,10 @@ def run_pipeline(config_path: str):
 
     mx = train_xgb(x_trainval, y_trainval, params=best_xgb_params or model_cfg.get("xgb", {}))
     mh = train_hgb(x_trainval, y_trainval, params=best_hgb_params or model_cfg.get("hgb", {}))
+    ml = train_lgbm(x_trainval, y_trainval, params=best_lgbm_params or model_cfg.get("lgbm", {}))
     model_preds["XGBoost"] = mx.predict(x_test)
     model_preds["HistGB"] = mh.predict(x_test)
-    xgb_models = [mx.estimators_[0]] if hasattr(mx, 'estimators_') else [mx] # For SHAP
+    model_preds["LightGBM"] = ml.predict(x_test)
 
     lstm_cfg = model_cfg.get("lstm", {})
     # build sequences for LSTM (seq_len configurable; default 24 months)
@@ -249,6 +292,7 @@ def run_pipeline(config_path: str):
         epochs=lstm_cfg.get("epochs", 60),
         lr=lstm_cfg.get("lr", 1e-3),
         batch_size=lstm_cfg.get("batch_size", 64),
+        horizon_weights=exp.get("horizon_weights", None),
     )
     lstm.eval()
     with torch.no_grad():
@@ -294,9 +338,26 @@ def run_pipeline(config_path: str):
 
     if run_cfg.get("enable_shap", True):
         try:
-            run_shap_analysis(xgb_models[0], x_train_df[feature_cols], x_test_df[feature_cols], feature_cols, dirs["shap"])
+            # Map model names to objects for SHAP
+            model_instances = {
+                "XGBoost": mx,
+                "HistGB": mh,
+                "LightGBM": ml,
+                "LSTM": lstm
+            }
+            
+            # Use the overall winner if it's a tree model, otherwise fall back to best tree
+            tree_model_names = ["HistGB", "XGBoost", "LightGBM"]
+            best_tree_name = next((m for m in res_df["model"] if m in tree_model_names), "XGBoost")
+            
+            shap_target_name = best_model if best_model in tree_model_names else best_tree_name
+            shap_instance = model_instances.get(shap_target_name)
+            
+            print(f"[INFO] SHAP analysis target: {shap_target_name} (Overall winner: {best_model})")
+
+            run_shap_analysis(shap_instance, x_train_df[feature_cols], x_test_df[feature_cols], feature_cols, dirs["shap"])
             shap_by_province(
-                xgb_models[0],
+                shap_instance,
                 pd.concat([test[["province"]], x_test_df[feature_cols]], axis=1),
                 feature_cols,
                 dirs["shap"],
@@ -307,7 +368,9 @@ def run_pipeline(config_path: str):
                 dirs["shap"] / "insights.txt",
             )
         except Exception as exc:
-            warnings.warn(f"SHAP step skipped due to: {exc}")
+            import traceback
+            print(f"[ERROR] SHAP analysis failed for {shap_target_name}: {exc}")
+            traceback.print_exc()
 
     print(f"Done. Results at {dirs['metrics'] / 'model_comparison.csv'}")
 

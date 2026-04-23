@@ -53,11 +53,17 @@ analysis:
 experiment:
   cases_col: Diarrhoea_cases
   compute_rate_per100k: false
+  cross_disease_map:
+    Influenza_rates:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
   diseases:
   - Influenza_rates
   - Dengue_fever_rates
   - Diarrhoea_rates
-  include_other_diseases_as_features: true
   input_sequence_length: 12
   predict_horizon: 6
   social_vars:

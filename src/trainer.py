@@ -12,6 +12,7 @@ def train_lstm(
     lr: float = 1e-3,
     patience: int = 8,
     batch_size: int = 64,
+    horizon_weights: list[float] | None = None,
 ):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     loss_fn = torch.nn.MSELoss()
@@ -29,7 +30,14 @@ def train_lstm(
             xb = x_train[idx]
             yb = y_train[idx]
             pred = model(xb)
-            loss = loss_fn(pred, yb)
+            
+            if horizon_weights is not None:
+                hw_tensor = torch.tensor(horizon_weights, dtype=torch.float32, device=pred.device)
+                # xb has shape [B, ...], yb has shape [B, H], pred has shape [B, H]
+                mse_per_horizon = torch.mean((pred - yb) ** 2, dim=0) # [H]
+                loss = torch.sum(mse_per_horizon * hw_tensor) / torch.sum(hw_tensor) # normalized weighted MSE
+            else:
+                loss = loss_fn(pred, yb)
 
             optimizer.zero_grad()
             loss.backward()
@@ -41,7 +49,12 @@ def train_lstm(
         model.eval()
         with torch.no_grad():
             val_pred = model(val_data[0])
-            val_loss = loss_fn(val_pred, val_data[1]).item()
+            if horizon_weights is not None:
+                hw_tensor = torch.tensor(horizon_weights, dtype=torch.float32, device=val_pred.device)
+                mse_per_horizon = torch.mean((val_pred - val_data[1]) ** 2, dim=0)
+                val_loss = (torch.sum(mse_per_horizon * hw_tensor) / torch.sum(hw_tensor)).item()
+            else:
+                val_loss = loss_fn(val_pred, val_data[1]).item()
         if val_loss < best_val:
             best_val = val_loss
             wait = 0
