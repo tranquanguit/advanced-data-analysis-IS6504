@@ -1,0 +1,4 @@
+,Influenza_rates,Dengue_fever_rates,Diarrhoea_rates
+Influenza_rates,1.0,-0.0578408370613055,0.6306826120805744
+Dengue_fever_rates,-0.0578408370613055,1.0,-0.09327497249943542
+Diarrhoea_rates,0.6306826120805744,-0.09327497249943542,1.0

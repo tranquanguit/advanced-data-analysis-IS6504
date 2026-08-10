@@ -1,0 +1,28 @@
+{
+    "Influenza_rates": {
+        "Dengue_fever_rates": [],
+        "Diarrhoea_rates": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+        ]
+    },
+    "Dengue_fever_rates": {
+        "Influenza_rates": [],
+        "Diarrhoea_rates": []
+    },
+    "Diarrhoea_rates": {
+        "Influenza_rates": [
+            0,
+            1,
+            2,
+            3,
+            4
+        ],
+        "Dengue_fever_rates": []
+    }
+}
