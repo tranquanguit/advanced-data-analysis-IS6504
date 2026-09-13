@@ -47,7 +47,16 @@ def run_cv_pipeline(config_path: str):
         cases_col=exp.get("cases_col"),
         compute_rate_per100k=exp.get("compute_rate_per100k", False),
     )
-    
+
+    # Early column filtering (same as run_all): keep only metadata + config variables,
+    # so 'garbage' columns that are all-NaN in early years do not trigger the dropna
+    # and wipe out early folds (important now that we no longer backward-fill).
+    meta_cols = ["province", "date", "year", "month"]
+    config_vars = [target] + weather_vars + social_vars + diseases
+    cols_to_keep = [c for c in df_raw.columns
+                    if c in meta_cols or any(c == v or c.startswith(f"{v}_") for v in config_vars)]
+    df_raw = df_raw[cols_to_keep]
+
     df_feat = create_features(
         df_raw,
         target,
@@ -71,7 +80,7 @@ def run_cv_pipeline(config_path: str):
     print(f"[INFO] Target: {target}")
     
     # Define 5 folds
-    test_years = [2014, 2015, 2016, 2017, 2018]
+    test_years = [2013, 2014, 2015, 2016, 2017]  # REVIEW FIX: drop the partial 2018 fold
     
     cv_results = []
     
@@ -163,7 +172,9 @@ def run_cv_pipeline(config_path: str):
         for model_name, pred in model_preds.items():
             y_true_use = y_true_map.get(model_name, y_test)
             scores = evaluate_horizons(y_true_use, pred, horizons)
-            outbreak = outbreak_metrics(y_true_use[:, 0], pred[:, 0], percentile=95)
+            # REVIEW FIX: outbreak threshold from TRAIN targets, not test ground truth
+            outbreak = outbreak_metrics(y_true_use[:, 0], pred[:, 0],
+                                        threshold=float(np.percentile(y_trainval[:, 0], 95)))
             cv_results.append({"fold_year": y, "model": model_name, **scores, **outbreak})
             
     res_df = pd.DataFrame(cv_results)

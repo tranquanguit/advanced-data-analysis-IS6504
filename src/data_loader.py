@@ -57,7 +57,7 @@ def load_all_provinces(
     # and avoid pandas reset_index collisions on the grouping column.
     filled_frames: list[pd.DataFrame] = []
     for _, g in out.groupby(PROVINCE_COL, sort=False):
-        filled_frames.append(g.ffill().bfill())
+        filled_frames.append(g.ffill())  # REVIEW FIX: no backward-fill from the future
     out = pd.concat(filled_frames, axis=0, ignore_index=True)
     return out
 
@@ -96,7 +96,7 @@ def load_all_provinces_raw(
     # Fill missing values within each province only (no cross-province leakage).
     filled_frames = []
     for _, g in out.groupby(province_col, sort=False):
-        filled_frames.append(g.ffill().bfill())
+        filled_frames.append(g.ffill())  # REVIEW FIX: no backward-fill from the future
     out = pd.concat(filled_frames, axis=0, ignore_index=True)
     return out
 

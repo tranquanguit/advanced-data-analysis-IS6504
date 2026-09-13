@@ -57,8 +57,6 @@ experiment:
     Influenza_rates:
     - 0
     - 1
-    - 2
-    - 3
     - 4
   diseases:
   - Influenza_rates

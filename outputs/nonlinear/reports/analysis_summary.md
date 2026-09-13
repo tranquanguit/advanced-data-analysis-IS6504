@@ -11,4 +11,4 @@
 - Province-level records for top relationships: 1650
 
 ## Key Takeaway
-- Strongest relationship: `Diarrhoea_rates <- Influenza_rates (lag 0)`, composite score=0.996.
+- Strongest relationship: `Influenza_rates <- Diarrhoea_rates (lag 0)`, composite score=1.000.

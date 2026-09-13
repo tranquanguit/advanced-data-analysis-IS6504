@@ -1,15 +1,5 @@
-# Environments / caches
 .venv/
+data/
+outputs/
 __pycache__/
-*.pyc
-
-# Internal material — NOT for the public research repo
-paper/
-.claude/
-*.docx
-METHOLODY.md
-PLAN_UPDATE.md
-SCENARIOS.md
-Problem.md
-REVIEW_RESPONSE.md
-outputs/audit/
+results/

@@ -303,7 +303,9 @@ def run_pipeline(config_path: str):
     for model_name, pred in model_preds.items():
         y_true_use = y_true_map.get(model_name, y_test)
         scores = evaluate_horizons(y_true_use, pred, horizons)
-        outbreak = outbreak_metrics(y_true_use[:, 0], pred[:, 0], percentile=95)
+        # REVIEW FIX: outbreak threshold from TRAIN targets, not test ground truth
+        outbreak = outbreak_metrics(y_true_use[:, 0], pred[:, 0],
+                                    threshold=float(np.percentile(y_trainval[:, 0], 95)))
         results.append({"model": model_name, **scores, **outbreak})
 
         pred_df = test[["province", "date"]].iloc[-len(pred) :].copy()

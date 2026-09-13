@@ -1,13 +1,13 @@
 province,column,n_unique,std
-squeezed_Điện Biên,Dengue_fever_rates,13,0.8735594513945597
-squeezed_Điện Biên,population_urban,15,5.533647938216908
-squeezed_Đắk Nông,population_urban,15,15.055663441140432
-squeezed_Điện Biên,population_female,15,28.49094575619848
-squeezed_Điện Biên,population_male,15,29.904515952948728
-squeezed_Đắk Nông,population_female,15,32.986837958682806
-squeezed_Đắk Nông,population_male,15,42.68010324030749
-squeezed_Điện Biên,population_countryside,15,52.90679518801073
-squeezed_Đắk Nông,population_countryside,15,60.62159755639286
+squeezed_Điện Biên,Dengue_fever_rates,13,1.0541775911352187
+squeezed_Điện Biên,population_urban,15,4.706671104813771
+squeezed_Đắk Nông,population_urban,15,11.661039671582555
+squeezed_Điện Biên,population_female,15,24.39143534567456
+squeezed_Điện Biên,population_male,15,26.124941050438533
+squeezed_Đắk Nông,population_female,15,29.219974416294225
+squeezed_Đắk Nông,population_male,15,36.66557158364718
+squeezed_Điện Biên,population_countryside,15,45.88992358047922
+squeezed_Đắk Nông,population_countryside,15,54.075301135443425
 squeezed_Lai Châu,Dengue_fever_rates,17,0.6531162196335364
 squeezed_Cà Mau,Average_Humidity,18,3.65967708147584
 squeezed_Kiên Giang,Average_Humidity,18,4.0186787680037375
@@ -590,7 +590,7 @@ squeezed_Khánh Hòa,Max_Daily_Rainfall,149,56.638941178305814
 squeezed_Vĩnh Phúc,Max_Daily_Rainfall,151,42.54925566310097
 squeezed_Hải Dương,Max_Daily_Rainfall,152,38.88595698888264
 squeezed_Hải Phòng,Min_Average_Temperature,153,4.252348408473053
-squeezed_Đắk Nông,Dengue_fever_rates,153,17.61558996779954
+squeezed_Đắk Nông,Dengue_fever_rates,153,20.527375840466767
 squeezed_Bình Định,Max_Average_Temperature,156,3.108150390621911
 squeezed_Thái Bình,Max_Daily_Rainfall,156,52.97581741947432
 squeezed_Quảng Nam,Average_temperature,157,2.6269313211799603
@@ -606,11 +606,11 @@ squeezed_Quảng Trị,Dengue_fever_rates,161,69.9764123923251
 squeezed_Hà Giang,Min_Average_Temperature,162,4.19312595771831
 squeezed_Tuyên Quang,Average_temperature,162,4.558981891402297
 squeezed_Long An,n_hours_sunshine,162,35.97745260320852
-squeezed_Điện Biên,Influenza_rates,162,334.61738533665414
+squeezed_Điện Biên,Influenza_rates,162,402.0778760324193
 squeezed_Lâm Đồng,Max_Daily_Rainfall,163,24.60627145679435
 squeezed_Quảng Bình,Min_Average_Temperature,164,3.7141017009293362
 squeezed_Đà Nẵng,Max_Daily_Rainfall,164,82.05363142243363
-squeezed_Điện Biên,Diarrhoea_rates,164,143.50075222863893
+squeezed_Điện Biên,Diarrhoea_rates,164,173.14542739772747
 squeezed_Tuyên Quang,Max_Absolute_Temperature,165,3.703529327085722
 squeezed_Thái Nguyên,Average_temperature,166,4.631935645460919
 squeezed_Quảng Trị,Min_Absolute_Temperature,167,3.9607475556020972
@@ -622,7 +622,7 @@ squeezed_Nam Định,Max_Absolute_Temperature,169,4.250381404049501
 squeezed_Ninh Thuận,n_hours_sunshine,169,52.88678353524929
 squeezed_Quảng Trị,Max_Absolute_Temperature,170,3.404545180611174
 squeezed_Thái Nguyên,Max_Absolute_Temperature,170,3.8523125007258163
-squeezed_Đắk Nông,Diarrhoea_rates,170,57.71285792837668
+squeezed_Đắk Nông,Diarrhoea_rates,170,45.06214932651932
 squeezed_Hà Giang,Max_Absolute_Temperature,171,3.731335015289689
 squeezed_Bắc Kạn,Average_temperature,171,4.7267790593958345
 squeezed_Tây Ninh,n_hours_sunshine,171,36.09708420444015
@@ -640,7 +640,7 @@ squeezed_Hải Phòng,Max_Daily_Rainfall,176,43.50540496954957
 squeezed_Hải Dương,n_hours_sunshine,176,57.490133416069135
 squeezed_Khánh Hòa,n_hours_sunshine,176,57.77248098433345
 squeezed_Kon Tum,n_hours_sunshine,176,58.11917010170032
-squeezed_Đắk Nông,Influenza_rates,176,102.81061300799475
+squeezed_Đắk Nông,Influenza_rates,176,100.21838546524963
 squeezed_Bình Thuận,Max_Daily_Rainfall,177,29.86865034665547
 squeezed_Bình Phước,n_hours_sunshine,177,44.45659783165611
 squeezed_Đắk Nông,n_hours_sunshine,178,50.62001823797571

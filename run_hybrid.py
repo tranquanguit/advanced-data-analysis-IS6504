@@ -229,6 +229,11 @@ def cross_scenario_wilcoxon(base_id: str, cross_id: str, results_dir: str) -> No
 
 def main() -> None:
     args = parse_args()
+    try:  # keep Windows awake for the full (long) rerun
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000040)
+    except Exception:
+        pass
     config_path = args.config
     root_dir = Path(__file__).resolve().parent
     start_time = datetime.now()
